@@ -1,6 +1,6 @@
-# GitHub PR auto review
+# breeze
 
-Automatic GitHub pull request reviews from your own account. A local daemon watches review requests, dispatches an agent, and posts the audit as you.
+GitHub PR auto review from your own GitHub account. A local daemon reviews PRs, leaves comments, and uses your coding plan. Runs 24/7 on your machine. Optional macOS menu bar tray.
 
 ```
 /breeze: 52 PRs · 3 issues · 1 discussions (+2 new)
@@ -14,7 +14,7 @@ Automatic GitHub pull request reviews from your own account. A local daemon watc
 4. **Pick a notification** and the agent summarizes the context, suggests an action with a confidence level
 5. **Act on it** in natural language ("approve this PR", "mark for human review", "this is handled")
 
-GitHub PR auto review uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
+breeze uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
 
 ## Install
 
@@ -29,7 +29,8 @@ The setup script:
 - Builds the unified `breeze-runner` daemon (if Rust is installed) and installs a launchd plist that keeps it running. It refreshes `inbox.json` every 60s, dispatches agents on actionable items, and serves a live dashboard on `http://127.0.0.1:7878`
 - Falls back to a legacy shell-poll launchd entry on macOS / crontab entry on Linux when Rust is unavailable
 - Symlinks the `/breeze`, `/breeze-watch`, `/breeze-upgrade` skills into `~/.claude/skills/`
-- Chains GitHub PR auto review into your existing Claude Code statusline (doesn't replace it)
+- Chains breeze into your existing Claude Code statusline (doesn't replace it)
+- On macOS, builds and installs the breeze menu bar tray (`~/.breeze/tray/BreezeTray.app`)
 - Runs an initial poll
 
 ### Prerequisites
@@ -45,6 +46,7 @@ The setup script:
 - **`/breeze-watch`** — live activity log with clickable GitHub links, in a new terminal window
 - **`/breeze-upgrade`** — pull the latest code (no restart needed)
 - **`http://127.0.0.1:7878`** — live web dashboard (when the unified daemon is installed)
+- **menu bar tray** — Pause/Resume the daemon and open PRs labeled `breeze:human` (`tray-mac/`)
 
 ## Usage
 
@@ -68,7 +70,7 @@ Pick a number. The agent loads the full context (PR diff, comment thread, issue 
 
 ## Notification Status
 
-GitHub PR auto review tracks status using **GitHub labels** on the PR/issue/discussion:
+breeze tracks status using **GitHub labels** on the PR/issue/discussion:
 
 | Label | Status | Meaning | Shows in statusline? |
 |-------|--------|---------|---------------------|
@@ -100,7 +102,7 @@ Edit `~/.breeze/config.yaml`:
 repos:
   - all                    # or list specific repos: owner/repo1, owner/repo2
 poll_interval: 60          # seconds between polls
-footer: true               # append "sent via GitHub PR auto review" to comments
+footer: true               # append "sent via breeze" to comments
 ```
 
 ## How it works
@@ -127,7 +129,7 @@ Agents handle 99%. Humans see 1%.
 
 That 1% is the part that needs you — real decisions, real judgment. Everything else was never your job, you just got stuck doing it.
 
-GitHub PR auto review is how we get there. See [DESIGN.md](DESIGN.md) for the architecture.
+breeze is how we get there. See [DESIGN.md](DESIGN.md) for the architecture. See [tray-mac/README.md](tray-mac/README.md) for the menu bar app.
 
 ## License
 

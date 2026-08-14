@@ -252,7 +252,18 @@ else
 fi
 echo ""
 
-# 7. Run initial poll
+# 7. Menu bar tray (macOS + Swift toolchain)
+if [ "$(uname)" = "Darwin" ] && command -v swift >/dev/null 2>&1; then
+  echo "Installing breeze menu bar tray..."
+  if [ -x "$SCRIPT_DIR/tray-mac/scripts/install-tray.sh" ]; then
+    BREEZE_DIR="$BREEZE_DIR" "$SCRIPT_DIR/tray-mac/scripts/install-tray.sh" --no-launch || echo "  WARN: tray install failed (daemon still works)"
+  else
+    echo "  WARN: tray-mac/scripts/install-tray.sh missing"
+  fi
+  echo ""
+fi
+
+# 8. Run initial poll
 echo "Running initial poll..."
 if [ "$USE_RUNNER" = "1" ]; then
   "$RUNNER_BIN" poll || true
@@ -261,7 +272,7 @@ else
 fi
 echo ""
 
-# 8. Show status
+# 9. Show status
 echo "=== Setup complete ==="
 echo ""
 echo "  Inbox:     $BREEZE_DIR/inbox.json"

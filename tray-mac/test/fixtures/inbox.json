@@ -1,0 +1,35 @@
+{
+  "last_poll": "2026-08-14T19:59:02Z",
+  "notifications": [
+    {
+      "id": "human-1",
+      "type": "PullRequest",
+      "reason": "review_requested",
+      "repo": "tornado-doc/tdoc",
+      "title": "Needs a human call",
+      "html_url": "https://github.com/tornado-doc/tdoc/pull/42",
+      "number": 42,
+      "breeze_status": "human"
+    },
+    {
+      "id": "new-1",
+      "type": "PullRequest",
+      "reason": "review_requested",
+      "repo": "tornado-doc/tdoc",
+      "title": "Agent can review this",
+      "html_url": "https://github.com/tornado-doc/tdoc/pull/43",
+      "number": 43,
+      "breeze_status": "new"
+    },
+    {
+      "id": "done-1",
+      "type": "PullRequest",
+      "reason": "review_requested",
+      "repo": "tornado-doc/tdoc",
+      "title": "Already handled",
+      "html_url": "https://github.com/tornado-doc/tdoc/pull/44",
+      "number": 44,
+      "breeze_status": "done"
+    }
+  ]
+}
