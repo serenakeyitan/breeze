@@ -35,32 +35,10 @@ echo ""
 echo "Setting up ~/.breeze..."
 mkdir -p "$BREEZE_DIR"
 
-if [ ! -f "$BREEZE_DIR/config.yaml" ]; then
-  cat > "$BREEZE_DIR/config.yaml" << 'EOF'
-# breeze configuration
-# List specific repos to watch, or remove this section to watch all
-repos:
-  - all
-
-# Poll interval in seconds (used by launchd/crontab)
-poll_interval: 180
-
-# Append footer to comments/reviews posted by breeze
-footer: true
-
-# Automatically mark notifications as read after polling
-auto_mark_read: false
-
-# Priority ordering (highest first)
-priority:
-  - review_requested
-  - mention
-  - assign
-  - participating
-EOF
-  echo "  Created default config at $BREEZE_DIR/config.yaml"
-else
+if [ -f "$BREEZE_DIR/config.yaml" ]; then
   echo "  Config already exists at $BREEZE_DIR/config.yaml"
+else
+  echo "  No config yet — /breeze-onboard will write an allowlist (never repos: all)"
 fi
 echo ""
 
@@ -68,6 +46,7 @@ echo ""
 echo "Making scripts executable..."
 chmod +x "$SCRIPT_DIR/bin/breeze-poll"
 chmod +x "$SCRIPT_DIR/bin/breeze-status"
+chmod +x "$SCRIPT_DIR/bin/breeze-onboard-probe" "$SCRIPT_DIR/bin/breeze-onboard-apply"
 echo "  OK"
 echo ""
 
@@ -107,104 +86,16 @@ if [ -L "$SKILL_DIR/breeze-upgrade" ] || [ -d "$SKILL_DIR/breeze-upgrade" ]; the
 fi
 ln -s "$SCRIPT_DIR/skill-upgrade" "$SKILL_DIR/breeze-upgrade"
 echo "  Symlinked $SKILL_DIR/breeze-upgrade -> $SCRIPT_DIR/skill-upgrade"
+if [ -L "$SKILL_DIR/breeze-onboard" ] || [ -d "$SKILL_DIR/breeze-onboard" ]; then
+  rm -rf "$SKILL_DIR/breeze-onboard"
+fi
+ln -s "$SCRIPT_DIR/skill-onboard" "$SKILL_DIR/breeze-onboard"
+echo "  Symlinked $SKILL_DIR/breeze-onboard -> $SCRIPT_DIR/skill-onboard"
 echo ""
 
-# 5. Install service (platform-specific)
-echo "Installing service..."
-
-if [ "$(uname)" = "Darwin" ]; then
-  PLIST_DIR="$HOME/Library/LaunchAgents"
-  mkdir -p "$PLIST_DIR"
-
-  # Always clean up any prior breeze-poll plist — the runner supersedes it.
-  LEGACY_PLIST="$PLIST_DIR/com.breeze.poll.plist"
-  if [ -f "$LEGACY_PLIST" ]; then
-    launchctl unload "$LEGACY_PLIST" 2>/dev/null || true
-    rm -f "$LEGACY_PLIST"
-    echo "  Removed legacy com.breeze.poll.plist"
-  fi
-
-  if [ "$USE_RUNNER" = "1" ]; then
-    PLIST_FILE="$PLIST_DIR/com.breeze.runner.plist"
-    launchctl unload "$PLIST_FILE" 2>/dev/null || true
-    cat > "$PLIST_FILE" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.breeze.runner</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$RUNNER_BIN</string>
-    <string>run</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$BREEZE_DIR/runner.log</string>
-  <key>StandardErrorPath</key>
-  <string>$BREEZE_DIR/runner-error.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>BREEZE_DIR</key>
-    <string>$BREEZE_DIR</string>
-  </dict>
-</dict>
-</plist>
-EOF
-    launchctl load "$PLIST_FILE"
-    echo "  Installed unified daemon plist at $PLIST_FILE"
-    echo "  Dashboard: http://127.0.0.1:7878"
-  else
-    PLIST_FILE="$PLIST_DIR/com.breeze.poll.plist"
-    cat > "$PLIST_FILE" << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.breeze.poll</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>$SCRIPT_DIR/bin/breeze-poll</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>60</integer>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$BREEZE_DIR/poll.log</string>
-  <key>StandardErrorPath</key>
-  <string>$BREEZE_DIR/poll-error.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-  </dict>
-</dict>
-</plist>
-EOF
-    launchctl load "$PLIST_FILE"
-    echo "  Installed legacy shell poller at $PLIST_FILE"
-    echo "  (install Rust + cargo and re-run setup for the unified daemon + dashboard)"
-  fi
-
-else
-  # Linux: crontab — shell poller path. systemd unit for the runner is out
-  # of scope here; run \`breeze-runner start\` manually for now.
-  CRON_CMD="* * * * * /bin/bash $SCRIPT_DIR/bin/breeze-poll >> $BREEZE_DIR/poll.log 2>&1"
-  (crontab -l 2>/dev/null | grep -v breeze-poll; echo "$CRON_CMD") | crontab -
-  echo "  Installed crontab entry (every minute)"
-  if [ "$USE_RUNNER" = "1" ]; then
-    echo "  For the unified daemon + dashboard, also run: $RUNNER_BIN start"
-  fi
-fi
+# 5. Daemon + tray are not started here. /breeze-onboard asks for an
+# explicit owner/repo allowlist, then calls bin/breeze-onboard-apply.
+echo "Skipping daemon/tray start — next step is /breeze-onboard"
 echo ""
 
 # 6. Install statusline
@@ -252,52 +143,13 @@ else
 fi
 echo ""
 
-# 7. Menu bar tray (macOS + Swift toolchain)
-if [ "$(uname)" = "Darwin" ] && command -v swift >/dev/null 2>&1; then
-  echo "Installing breeze menu bar tray..."
-  if [ -x "$SCRIPT_DIR/tray-mac/scripts/install-tray.sh" ]; then
-    BREEZE_DIR="$BREEZE_DIR" "$SCRIPT_DIR/tray-mac/scripts/install-tray.sh" --no-launch || echo "  WARN: tray install failed (daemon still works)"
-  else
-    echo "  WARN: tray-mac/scripts/install-tray.sh missing"
-  fi
-  echo ""
-fi
-
-# 8. Run initial poll
-echo "Running initial poll..."
+echo "=== Tools installed ==="
+echo ""
+echo "  Repo:   $SCRIPT_DIR"
+echo "  Skills: $SKILL_DIR/breeze + breeze-onboard"
 if [ "$USE_RUNNER" = "1" ]; then
-  "$RUNNER_BIN" poll || true
-else
-  bash "$SCRIPT_DIR/bin/breeze-poll"
+  echo "  Runner: $RUNNER_BIN"
 fi
 echo ""
-
-# 9. Show status
-echo "=== Setup complete ==="
-echo ""
-echo "  Inbox:     $BREEZE_DIR/inbox.json"
-echo "  Config:    $BREEZE_DIR/config.yaml"
-echo "  Skill:     $SKILL_DIR/breeze"
-if [ "$USE_RUNNER" = "1" ]; then
-  echo "  Logs:      $BREEZE_DIR/runner.log"
-  echo "  Dashboard: http://127.0.0.1:7878"
-else
-  echo "  Logs:      $BREEZE_DIR/poll.log"
-fi
-echo ""
-echo "Usage:"
-echo "  /breeze          — open your notification inbox in Claude Code"
-if [ "$USE_RUNNER" = "1" ]; then
-  echo "  open http://127.0.0.1:7878   — live dashboard in your browser"
-fi
-echo ""
-echo "To stop the service:"
-if [ "$(uname)" = "Darwin" ]; then
-  if [ "$USE_RUNNER" = "1" ]; then
-    echo "  launchctl unload ~/Library/LaunchAgents/com.breeze.runner.plist"
-  else
-    echo "  launchctl unload ~/Library/LaunchAgents/com.breeze.poll.plist"
-  fi
-else
-  echo "  crontab -e  (remove the breeze-poll line)"
-fi
+echo "Next: in your coding agent run /breeze-onboard"
+echo "That skill asks which repos to review, then starts the daemon."

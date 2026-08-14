@@ -24,14 +24,9 @@ cd breeze
 ./setup
 ```
 
-The setup script:
-- Creates `~/.breeze/` for local cache (inbox.json, activity log, claim locks)
-- Builds the unified `breeze-runner` daemon (if Rust is installed) and installs a launchd plist that keeps it running. It refreshes `inbox.json` every 60s, dispatches agents on actionable items, and serves a live dashboard on `http://127.0.0.1:7878`
-- Falls back to a legacy shell-poll launchd entry on macOS / crontab entry on Linux when Rust is unavailable
-- Symlinks the `/breeze`, `/breeze-watch`, `/breeze-upgrade` skills into `~/.claude/skills/`
-- Chains breeze into your existing Claude Code statusline (doesn't replace it)
-- On macOS, builds and installs the breeze menu bar tray (`~/.breeze/tray/BreezeTray.app`)
-- Runs an initial poll
+`./setup` only installs local tools (skills, optional `breeze-runner` build, statusline). It does **not** start reviewing and never writes `repos: all`.
+
+Then tell your coding agent **`/breeze-onboard`**. That skill probes what is already done and asks only what is left: which `owner/repo` to review, tray or not, start the daemon or not. It then calls `bin/breeze-onboard-apply`.
 
 ### Prerequisites
 
@@ -42,6 +37,7 @@ The setup script:
 
 ## Commands
 
+- **`/breeze-onboard`** — ask-only setup: repos, tray, start daemon
 - **`/breeze`** — open the inbox dashboard, pick a notification, act on it
 - **`/breeze-watch`** — live activity log with clickable GitHub links, in a new terminal window
 - **`/breeze-upgrade`** — pull the latest code (no restart needed)
