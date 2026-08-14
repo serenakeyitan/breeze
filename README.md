@@ -1,6 +1,6 @@
-# breeze
+# GitHub PR auto review
 
-GitHub notifications inside Claude Code. See what needs your attention in the statusline, browse your inbox grouped by project, get AI-powered summaries and suggested actions, and respond without leaving your terminal.
+Automatic GitHub pull request reviews from your own account. A local daemon watches review requests, dispatches an agent, and posts the audit as you.
 
 ```
 /breeze: 52 PRs · 3 issues · 1 discussions (+2 new)
@@ -14,12 +14,12 @@ GitHub notifications inside Claude Code. See what needs your attention in the st
 4. **Pick a notification** and the agent summarizes the context, suggests an action with a confidence level
 5. **Act on it** in natural language ("approve this PR", "mark for human review", "this is handled")
 
-breeze uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall breeze.
+GitHub PR auto review uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
 
 ## Install
 
 ```bash
-git clone https://github.com/agent-team-foundation/breeze.git
+git clone https://github.com/serenakeyitan/breeze.git
 cd breeze
 ./setup
 ```
@@ -29,7 +29,7 @@ The setup script:
 - Builds the unified `breeze-runner` daemon (if Rust is installed) and installs a launchd plist that keeps it running. It refreshes `inbox.json` every 60s, dispatches agents on actionable items, and serves a live dashboard on `http://127.0.0.1:7878`
 - Falls back to a legacy shell-poll launchd entry on macOS / crontab entry on Linux when Rust is unavailable
 - Symlinks the `/breeze`, `/breeze-watch`, `/breeze-upgrade` skills into `~/.claude/skills/`
-- Chains breeze into your existing Claude Code statusline (doesn't replace it)
+- Chains GitHub PR auto review into your existing Claude Code statusline (doesn't replace it)
 - Runs an initial poll
 
 ### Prerequisites
@@ -68,7 +68,7 @@ Pick a number. The agent loads the full context (PR diff, comment thread, issue 
 
 ## Notification Status
 
-breeze tracks status using **GitHub labels** on the PR/issue/discussion:
+GitHub PR auto review tracks status using **GitHub labels** on the PR/issue/discussion:
 
 | Label | Status | Meaning | Shows in statusline? |
 |-------|--------|---------|---------------------|
@@ -100,7 +100,7 @@ Edit `~/.breeze/config.yaml`:
 repos:
   - all                    # or list specific repos: owner/repo1, owner/repo2
 poll_interval: 60          # seconds between polls
-footer: true               # append "sent via breeze" to comments
+footer: true               # append "sent via GitHub PR auto review" to comments
 ```
 
 ## How it works
@@ -127,7 +127,7 @@ Agents handle 99%. Humans see 1%.
 
 That 1% is the part that needs you — real decisions, real judgment. Everything else was never your job, you just got stuck doing it.
 
-breeze is how we get there. See [DESIGN.md](DESIGN.md) for the architecture.
+GitHub PR auto review is how we get there. See [DESIGN.md](DESIGN.md) for the architecture.
 
 ## License
 
