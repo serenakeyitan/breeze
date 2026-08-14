@@ -19,8 +19,11 @@ cargo_ok=false
 command -v cargo >/dev/null && cargo_ok=true
 swift_ok=false
 command -v swift >/dev/null && swift_ok=true
-
 os="$(uname)"
+tray_supported=false
+[ "$os" = "Darwin" ] && [ "$swift_ok" = true ] && tray_supported=true
+runner_binary=false
+[ -x "$REPO/breeze-runner/target/release/breeze-runner" ] && runner_binary=true
 config="$BREEZE_DIR/config.yaml"
 config_exists=false
 config_is_all=false
@@ -65,6 +68,8 @@ printf '"login":%s,' "$(printf '%s' "$login" | python3 -c 'import json,sys; prin
 printf '"jq_ok":%s,' "$jq_ok"
 printf '"cargo_ok":%s,' "$cargo_ok"
 printf '"swift_ok":%s,' "$swift_ok"
+printf '"tray_supported":%s,' "$tray_supported"
+printf '"runner_binary":%s,' "$runner_binary"
 printf '"config_exists":%s,' "$config_exists"
 printf '"config_is_all":%s,' "$config_is_all"
 printf '"config_repos":%s,' "$(printf '%s' "$config_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"

@@ -152,4 +152,4 @@ if [ "$USE_RUNNER" = "1" ]; then
 fi
 echo ""
 echo "Next: in your coding agent run /breeze-onboard"
-echo "That skill asks which repos to review, then starts the daemon."
+echo "It asks only what is still open (repos; start if needed). Tray is optional."

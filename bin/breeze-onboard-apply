@@ -75,20 +75,6 @@ mkdir -p "$BREEZE_DIR"
 echo "WROTE_CONFIG: $BREEZE_DIR/config.yaml"
 echo "REPOS: $(IFS=,; echo "${CLEAN[*]}")"
 
-if [ "$TRAY" = "1" ]; then
-  if [ "$(uname)" != "Darwin" ]; then
-    echo "SKIP_TRAY: not macOS"
-  elif [ ! -x "$REPO/tray-mac/scripts/install-tray.sh" ]; then
-    echo "SKIP_TRAY: install script missing"
-  else
-    FLAGS=(--no-autostart)
-    [ "$OPEN_TRAY" = "1" ] || FLAGS+=(--no-launch)
-    [ "$OPEN_TRAY" = "1" ] && FLAGS=( )
-    BREEZE_DIR="$BREEZE_DIR" "$REPO/tray-mac/scripts/install-tray.sh" "${FLAGS[@]+"${FLAGS[@]}"}"
-    echo "TRAY: installed"
-  fi
-fi
-
 if [ "$START" = "1" ]; then
   RUNNER="$REPO/breeze-runner/target/release/breeze-runner"
   if [ ! -x "$RUNNER" ]; then
@@ -104,4 +90,20 @@ if [ "$START" = "1" ]; then
   "$RUNNER" stop >/dev/null 2>&1 || true
   "$RUNNER" start --allow-repo "$SCOPE"
   echo "STARTED: --allow-repo $SCOPE"
+fi
+
+if [ "$TRAY" = "1" ]; then
+  if [ "$(uname)" != "Darwin" ]; then
+    echo "SKIP_TRAY: not macOS"
+  elif [ ! -x "$REPO/tray-mac/scripts/install-tray.sh" ]; then
+    echo "SKIP_TRAY: install script missing"
+  else
+    FLAGS=(--no-autostart)
+    [ "$OPEN_TRAY" = "1" ] || FLAGS+=(--no-launch)
+    if BREEZE_DIR="$BREEZE_DIR" "$REPO/tray-mac/scripts/install-tray.sh" "${FLAGS[@]}"; then
+      echo "TRAY: installed"
+    else
+      echo "SKIP_TRAY: install failed (daemon not affected)"
+    fi
+  fi
 fi

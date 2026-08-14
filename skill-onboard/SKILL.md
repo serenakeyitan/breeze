@@ -1,9 +1,9 @@
 ---
 name: breeze-onboard
 description: |
-  Set up breeze (GitHub PR auto review) on this machine. Asks only the
-  questions that are still unanswered, then writes config, starts the
-  daemon, and optionally installs the macOS tray.
+  Set up breeze (GitHub PR auto review) on this machine. Asks only what
+  is still unanswered, then writes an explicit owner/repo allowlist and
+  can start the daemon. Tray is optional and off by default.
   Use when: "onboard breeze", "set up breeze", "install breeze",
   "/breeze-onboard", "breeze setup", first-time breeze install.
 allowed-tools:
@@ -14,97 +14,104 @@ allowed-tools:
 
 # breeze-onboard
 
-Drive breeze setup by asking the user. Do **not** run a linear wizard
-script that asks every question. Probe first, skip what is already
-decided, and let the user change their mind in chat.
+Ask the user. Do not run a linear wizard. Probe first. Chat answers count
+for every decision (repos, tray, start), not only tray.
 
-Never write `repos: all`. Never start the daemon without an explicit
-`owner/repo` allowlist.
+Never write `repos: all`. Never start without `owner/repo`. Never install
+tray unless they opt in.
 
 ## 1. Probe
 
-Find the repo (this skill lives at `<repo>/skill-onboard`):
-
 ```bash
-SKILL_FILE=""
-[ -f "$HOME/.claude/skills/breeze-onboard/SKILL.md" ] && SKILL_FILE="$HOME/.claude/skills/breeze-onboard/SKILL.md"
-[ -z "$SKILL_FILE" ] && [ -f "$HOME/.agents/skills/breeze-onboard/SKILL.md" ] && SKILL_FILE="$HOME/.agents/skills/breeze-onboard/SKILL.md"
+LINK=""
+[ -L "$HOME/.claude/skills/breeze-onboard" ] && LINK="$HOME/.claude/skills/breeze-onboard"
+[ -z "$LINK" ] && [ -L "$HOME/.agents/skills/breeze-onboard" ] && LINK="$HOME/.agents/skills/breeze-onboard"
 REPO=""
-if [ -n "$SKILL_FILE" ]; then
-  REPO="$(cd "$(dirname "$(readlink "$SKILL_FILE" 2>/dev/null || echo "$SKILL_FILE")")/.." && pwd)"
+if [ -n "$LINK" ]; then
+  TARGET="$(readlink "$LINK")"
+  REPO="$(cd "$(dirname "$TARGET")" && pwd)"
 fi
-[ -z "$REPO" ] && [ -d "$HOME/breeze/bin" ] && REPO="$HOME/breeze"
+[ -z "$REPO" ] && [ -x "$HOME/breeze/bin/breeze-onboard-probe" ] && REPO="$HOME/breeze"
+[ -z "$REPO" ] && [ -x "$(pwd)/bin/breeze-onboard-probe" ] && REPO="$(pwd)"
 PROBE="$REPO/bin/breeze-onboard-probe"
-if [ ! -x "$PROBE" ]; then
+if [ -z "$REPO" ] || [ ! -f "$PROBE" ]; then
   echo "PROBE_MISSING"
 else
+  chmod +x "$PROBE" "$REPO/bin/breeze-onboard-apply" 2>/dev/null || true
   bash "$PROBE"
 fi
 ```
 
-If `PROBE_MISSING`: tell them to `git clone https://github.com/serenakeyitan/breeze.git` and stop.
+If `PROBE_MISSING`: tell them exactly this and stop (no other questions):
 
-Parse the JSON. If `gh_ok` is false: tell them to run `gh auth login` and stop.
+`git clone https://github.com/serenakeyitan/breeze.git ~/breeze && cd ~/breeze && ./setup`
 
-If they already stated repos / tray / start in this chat, treat that as
-the answer. Do not re-ask.
+Then: run `/breeze-onboard` again.
 
-## 2. Ask only what is still open
+If `gh_ok` is false: tell them `gh auth login`, then re-run `/breeze-onboard`.
+Write nothing. Start nothing.
 
-Use `AskUserQuestion` when it exists. If it does not, ask in prose and wait.
-One question at a time. After each answer, continue.
+## 2. Decide without extra asks
+
+A decision is **closed** if this chat already answered it, or probe already
+has a valid value.
 
 ### Repos (required)
 
-Ask if `config_repos` is empty **or** `config_is_all` is true **or** they
-said they want to change the list.
+Closed if `config_repos` is a non-empty explicit list **and** `config_is_all`
+is false **and** they did not ask to change it.
 
-- Build options from `recent_repos` (split on commas), plus any current
-  `config_repos` that are not `all`.
-- Recommend repos they actually use (if `tornado-doc/tdoc` is in the list,
-  put it first).
-- Allow multiple. Always keep an "Other" / type `owner/repo` path.
-- Reject `all`, `*`, and anything that is not `owner/repo`. Re-ask.
+Still open (must ask or take from chat): empty list, or `config_is_all`.
+Do not offer “keep all”. Reject `all`, `*`, globs; re-ask that one
+question. “Add X” while a list exists means **union** with current
+`config_repos`, not replace.
 
-If a valid allowlist already exists and they did not ask to change it,
-keep it and say so.
+If they already named valid `owner/repo` in chat, do not open the picker.
 
-### Tray (optional, macOS only)
+### Tray (optional)
 
-Tray is **optional**. Daemon + PR review work without it. Never install
-tray unless the user explicitly opts in. Skipping is the default.
+Default: skip. Never `--tray` unless they explicitly want it.
 
-- Linux: do not ask, do not install.
-- If `swift_ok` is false: mention tray exists but needs Swift CLT, skip.
-- If they already said they do not want the tray: skip, do not ask.
-- If `tray_installed` is true and they did not ask to change it: leave it.
-- Otherwise you may offer it once. Recommended option: **Skip tray**.
-  Other option: install (and open only if they also ask to open it).
-- On skip: do **not** pass `--tray` to apply. Onboarding still succeeds.
+Do **not** offer tray when:
+- not Darwin
+- they said no / skip / don’t want tray
+- this is a returning run (`config_exists` and allowlist already valid)
+- they only asked to write config / not start
 
-### Start daemon
+On Darwin + first run + they said nothing about tray: you may offer
+**once**, recommended **Skip tray**.
 
-Ask only if `runner_running` is false, or the repo list just changed.
+### Start
 
-- Yes: start with the allowlist.
-- No: write config only.
+Closed if they already said start or don’t start.
 
-If `cargo_ok` is false and they want start: tell them they need Rust to
-build `breeze-runner`, do not pretend the shell poller is scoped.
+If the allowlist **changed** and `runner_running` is true: do **not** ask.
+Restart (`--start`) so the live process matches the new list.
 
-Do **not** ask poll interval. It is 10 minutes.
+If `runner_running` is false and they said “set up breeze” / onboard with
+no “don’t start”: treat start as yes (say so in the report).
 
-## 3. Apply
+If there is no runner binary and `cargo_ok` is false: do not ask start.
+Write config, tell them they need Rust, how to start later.
+
+If `runner_running` is true and the list is unchanged: do not ask, do not
+restart, do not call apply unless they asked to change something.
+
+Do not ask poll interval (10 minutes).
+
+## 3. Apply (only if something must change)
 
 ```bash
 APPLY="$REPO/bin/breeze-onboard-apply"
-FLAGS=(--allow-repo "owner/repo,owner/repo2")
-# add --start from answers
-# add --tray / --open-tray only if they opted in; default is no tray
-bash "$APPLY" "${FLAGS[@]}"
+# example after chat “只要 tornado-doc/tdoc，不要 tray，启动”
+bash "$APPLY" --allow-repo tornado-doc/tdoc --start
 ```
 
-Also symlink skills if `~/.claude/skills/breeze-onboard` is missing:
+Pass `--tray` / `--open-tray` only on explicit opt-in. Pass `--start` to
+start or restart. If nothing changed and daemon is already correct: skip
+apply, just report.
+
+Symlink skills if missing:
 
 ```bash
 mkdir -p "$HOME/.claude/skills"
@@ -116,13 +123,14 @@ ln -sfn "$REPO/skill-onboard" "$HOME/.claude/skills/breeze-onboard"
 
 ## 4. Report
 
-Re-run the probe. Tell them, in this order:
+Re-run probe. Tell them:
 
 - GitHub login breeze will post as
 - allowlist
-- daemon running or not
-- tray installed / opened or skipped
-- dashboard URL if the daemon is up (`breeze-runner status` / probe)
+- daemon running or not (from `breeze-runner status` `allowed repos`, not
+  only the yaml)
+- tray only if Darwin: installed, skipped, or failed (failure is not fatal)
+- if daemon is down: `breeze-runner start --allow-repo <the list>`
 
-Remind once: a PR is reviewed only when GitHub sends you
-`review_requested` (CODEOWNERS or a manual review request).
+Remind once: PRs are reviewed only on `review_requested` to this account
+(CODEOWNERS or a manual review request).
