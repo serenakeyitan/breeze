@@ -20,7 +20,8 @@ while [ "${1:-}" != "" ]; do
     --start)      START=1; shift ;;
     --no-start)   START=0; shift ;;
     --help|-h)
-      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--tray] [--open-tray] [--start]"
+      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--start] [--tray] [--open-tray]"
+      echo "tray flags are optional; omit them to skip the menu bar app"
       exit 0 ;;
     *)
       echo "ERROR: unknown flag '$1'" >&2

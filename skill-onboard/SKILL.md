@@ -69,14 +69,18 @@ said they want to change the list.
 If a valid allowlist already exists and they did not ask to change it,
 keep it and say so.
 
-### Tray (macOS only)
+### Tray (optional, macOS only)
 
-Ask only if `os` is `Darwin`. Skip on Linux.
+Tray is **optional**. Daemon + PR review work without it. Never install
+tray unless the user explicitly opts in. Skipping is the default.
 
-- If `swift_ok` is false: say tray needs Swift CLT, skip, do not fail setup.
-- If `tray_installed` is true: default to leave it; only ask if they want
-  it opened.
-- Otherwise: install + open, or skip.
+- Linux: do not ask, do not install.
+- If `swift_ok` is false: mention tray exists but needs Swift CLT, skip.
+- If they already said they do not want the tray: skip, do not ask.
+- If `tray_installed` is true and they did not ask to change it: leave it.
+- Otherwise you may offer it once. Recommended option: **Skip tray**.
+  Other option: install (and open only if they also ask to open it).
+- On skip: do **not** pass `--tray` to apply. Onboarding still succeeds.
 
 ### Start daemon
 
@@ -95,7 +99,8 @@ Do **not** ask poll interval. It is 10 minutes.
 ```bash
 APPLY="$REPO/bin/breeze-onboard-apply"
 FLAGS=(--allow-repo "owner/repo,owner/repo2")
-# add --tray --open-tray --start from answers
+# add --start from answers
+# add --tray / --open-tray only if they opted in; default is no tray
 bash "$APPLY" "${FLAGS[@]}"
 ```
 

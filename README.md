@@ -26,7 +26,7 @@ cd breeze
 
 `./setup` only installs local tools (skills, optional `breeze-runner` build, statusline). It does **not** start reviewing and never writes `repos: all`.
 
-Then tell your coding agent **`/breeze-onboard`**. That skill probes what is already done and asks only what is left: which `owner/repo` to review, tray or not, start the daemon or not. It then calls `bin/breeze-onboard-apply`.
+Then tell your coding agent **`/breeze-onboard`**. That skill probes what is already done and asks only what is left: which `owner/repo` to review, and whether to start the daemon. The macOS tray is optional and off by default.
 
 ### Prerequisites
 
@@ -37,7 +37,7 @@ Then tell your coding agent **`/breeze-onboard`**. That skill probes what is alr
 
 ## Commands
 
-- **`/breeze-onboard`** — ask-only setup: repos, tray, start daemon
+- **`/breeze-onboard`** — ask-only setup: repos + start daemon; tray is optional
 - **`/breeze`** — open the inbox dashboard, pick a notification, act on it
 - **`/breeze-watch`** — live activity log with clickable GitHub links, in a new terminal window
 - **`/breeze-upgrade`** — pull the latest code (no restart needed)
