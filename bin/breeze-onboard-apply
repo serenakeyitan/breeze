@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# Apply onboard decisions. Never writes repos: all.
+set -euo pipefail
+
+BREEZE_DIR="${BREEZE_DIR:-$HOME/.breeze}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+ALLOW_REPO=""
+TRAY=0
+OPEN_TRAY=0
+START=0
+
+while [ "${1:-}" != "" ]; do
+  case "$1" in
+    --allow-repo) ALLOW_REPO="$2"; shift 2 ;;
+    --tray)       TRAY=1; shift ;;
+    --no-tray)    TRAY=0; shift ;;
+    --open-tray)  OPEN_TRAY=1; shift ;;
+    --start)      START=1; shift ;;
+    --no-start)   START=0; shift ;;
+    --help|-h)
+      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--start] [--tray] [--open-tray]"
+      echo "tray flags are optional; omit them to skip the menu bar app"
+      exit 0 ;;
+    *)
+      echo "ERROR: unknown flag '$1'" >&2
+      exit 2 ;;
+  esac
+done
+
+if [ -z "$ALLOW_REPO" ]; then
+  echo "ERROR: --allow-repo is required" >&2
+  exit 2
+fi
+
+IFS=',' read -r -a REPOS <<< "$ALLOW_REPO"
+CLEAN=()
+for raw in "${REPOS[@]}"; do
+  repo="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  [ -z "$repo" ] && continue
+  case "$repo" in
+    all|*'*'*|*'?'*)
+      echo "ERROR: refusing repo scope '$repo' — list explicit owner/repo values" >&2
+      exit 2 ;;
+  esac
+  if ! printf '%s' "$repo" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+    echo "ERROR: '$repo' is not owner/repo" >&2
+    exit 2
+  fi
+  CLEAN+=("$repo")
+done
+
+if [ "${#CLEAN[@]}" -eq 0 ]; then
+  echo "ERROR: no valid owner/repo values" >&2
+  exit 2
+fi
+
+mkdir -p "$BREEZE_DIR"
+{
+  echo "# breeze configuration"
+  echo "repos:"
+  for repo in "${CLEAN[@]}"; do
+    echo "  - $repo"
+  done
+  echo "poll_interval: 600"
+  echo "footer: true"
+  echo "auto_mark_read: false"
+  echo "priority:"
+  echo "  - review_requested"
+  echo "  - mention"
+  echo "  - assign"
+  echo "  - participating"
+} > "$BREEZE_DIR/config.yaml"
+echo "WROTE_CONFIG: $BREEZE_DIR/config.yaml"
+echo "REPOS: $(IFS=,; echo "${CLEAN[*]}")"
+
+if [ "$START" = "1" ]; then
+  RUNNER="$REPO/breeze-runner/target/release/breeze-runner"
+  if [ ! -x "$RUNNER" ]; then
+    if command -v cargo >/dev/null; then
+      cargo build --release --manifest-path "$REPO/breeze-runner/Cargo.toml"
+    fi
+  fi
+  if [ ! -x "$RUNNER" ]; then
+    echo "ERROR: breeze-runner binary missing; install cargo and re-run" >&2
+    exit 1
+  fi
+  SCOPE="$(IFS=,; echo "${CLEAN[*]}")"
+  "$RUNNER" stop >/dev/null 2>&1 || true
+  "$RUNNER" start --allow-repo "$SCOPE"
+  echo "STARTED: --allow-repo $SCOPE"
+fi
+
+if [ "$TRAY" = "1" ]; then
+  if [ "$(uname)" != "Darwin" ]; then
+    echo "SKIP_TRAY: not macOS"
+  elif [ ! -x "$REPO/tray-mac/scripts/install-tray.sh" ]; then
+    echo "SKIP_TRAY: install script missing"
+  else
+    FLAGS=(--no-autostart)
+    [ "$OPEN_TRAY" = "1" ] || FLAGS+=(--no-launch)
+    if BREEZE_DIR="$BREEZE_DIR" "$REPO/tray-mac/scripts/install-tray.sh" "${FLAGS[@]}"; then
+      echo "TRAY: installed"
+    else
+      echo "SKIP_TRAY: install failed (daemon not affected)"
+    fi
+  fi
+fi

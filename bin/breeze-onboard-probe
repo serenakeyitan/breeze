@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Print machine-readable onboard state. Non-destructive.
+set -euo pipefail
+
+BREEZE_DIR="${BREEZE_DIR:-$HOME/.breeze}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+gh_ok=false
+login=""
+if gh auth status &>/dev/null; then
+  gh_ok=true
+  login="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+
+jq_ok=false
+command -v jq >/dev/null && jq_ok=true
+cargo_ok=false
+command -v cargo >/dev/null && cargo_ok=true
+swift_ok=false
+command -v swift >/dev/null && swift_ok=true
+os="$(uname)"
+tray_supported=false
+[ "$os" = "Darwin" ] && [ "$swift_ok" = true ] && tray_supported=true
+runner_binary=false
+[ -x "$REPO/breeze-runner/target/release/breeze-runner" ] && runner_binary=true
+config="$BREEZE_DIR/config.yaml"
+config_exists=false
+config_is_all=false
+config_repos=""
+if [ -f "$config" ]; then
+  config_exists=true
+  if grep -Eq '^[[:space:]]*-[[:space:]]*all[[:space:]]*$' "$config"; then
+    config_is_all=true
+  fi
+  config_repos="$(awk '
+    $1=="repos:" {inrepos=1; next}
+    inrepos && $1 ~ /^-/ {
+      gsub(/^[[:space:]]*-[[:space:]]*/, "")
+      print
+      next
+    }
+    inrepos && $0 !~ /^[[:space:]]/ {inrepos=0}
+  ' "$config" | paste -sd, -)"
+fi
+
+runner_running=false
+if [ -x "$REPO/breeze-runner/target/release/breeze-runner" ]; then
+  if "$REPO/breeze-runner/target/release/breeze-runner" status 2>/dev/null | grep -q 'lock: running'; then
+    runner_running=true
+  fi
+fi
+
+tray_installed=false
+[ -x "$BREEZE_DIR/tray/BreezeTray.app/Contents/MacOS/BreezeTray" ] && tray_installed=true
+
+recent_repos=""
+if [ "$gh_ok" = true ] && [ "$jq_ok" = true ]; then
+  recent_repos="$(gh repo list --limit 8 --json nameWithOwner --jq '.[].nameWithOwner' 2>/dev/null | paste -sd, - || true)"
+fi
+
+printf '{'
+printf '"repo":%s,' "$(printf '%s' "$REPO" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"breeze_dir":%s,' "$(printf '%s' "$BREEZE_DIR" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"os":"%s",' "$os"
+printf '"gh_ok":%s,' "$gh_ok"
+printf '"login":%s,' "$(printf '%s' "$login" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"jq_ok":%s,' "$jq_ok"
+printf '"cargo_ok":%s,' "$cargo_ok"
+printf '"swift_ok":%s,' "$swift_ok"
+printf '"tray_supported":%s,' "$tray_supported"
+printf '"runner_binary":%s,' "$runner_binary"
+printf '"config_exists":%s,' "$config_exists"
+printf '"config_is_all":%s,' "$config_is_all"
+printf '"config_repos":%s,' "$(printf '%s' "$config_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"runner_running":%s,' "$runner_running"
+printf '"tray_installed":%s,' "$tray_installed"
+printf '"recent_repos":%s' "$(printf '%s' "$recent_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '}\n'
