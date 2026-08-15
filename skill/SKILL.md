@@ -170,6 +170,7 @@ The user can change notification status with natural language. Status is managed
 - **"show wip"** → list items with `breeze:wip` label
 - **"show done"** → list recently done items
 - **"show all"** → show all statuses
+- **"use grok"** / **"switch runtime to claude"** / **"use codex"** → `/breeze-runtime` (`breeze-runner runtime <name>`)
 
 To change status, use the status manager (which applies GitHub labels):
 ```bash

@@ -32,8 +32,9 @@ It will:
 
 1. Stop if `gh` is not logged in (`gh auth login`, then run `/breeze-onboard` again).
 2. Ask which **`owner/repo`** to review. Explicit list only — never `all`, never `org/*`.
-3. Start the daemon on that allowlist (unless you say not to). Poll interval is 10 minutes.
-4. On macOS, offer the menu bar tray **once**. Default is skip. Say you want the tray if you want it.
+3. Ask which **runtime** reviews PRs: `grok`, `codex`, or `claude`. You can change it later.
+4. Start the daemon on that allowlist (unless you say not to). Poll interval is 10 minutes.
+5. On macOS, offer the menu bar tray **once**. Default is skip. Say you want the tray if you want it.
 
 When it finishes, breeze posts as whatever `gh` is logged in as. PRs are reviewed only when that account is requested as a reviewer (CODEOWNERS or a manual review request).
 
@@ -45,6 +46,7 @@ When it finishes, breeze posts as whatever `gh` is logged in as. PRs are reviewe
 | See status | `/breeze-onboard` again, or `breeze-runner status` |
 | Write config only | say the repos and “don’t start” |
 | Install the tray later | `/breeze-onboard` and say you want the tray |
+| Switch review runtime | `/breeze-runtime grok` (or `codex` / `claude`), or `breeze-runner runtime grok` |
 
 Do not edit `~/.breeze/config.yaml` to `repos: all`. If an old config has `all`, `/breeze-onboard` will ask you to pick explicit repos before anything starts.
 
@@ -82,7 +84,9 @@ If you only want one repo auto-audited tonight, write a loop. If you want a GitH
 
 ## Commands
 
-- **`/breeze-onboard`** — set up or change which repos to review; start the daemon; tray is optional
+- **`/breeze-onboard`** — set up or change which repos to review; pick a runtime; start the daemon; tray is optional
+- **`/breeze-runtime`** — show or switch the review agent (`grok`, `codex`, `claude`)
+- **`breeze-runner runtime [grok|codex|claude]`** — same switch from the terminal
 - **`/breeze`** — open the inbox dashboard, pick a notification, act on it
 - **`/breeze-watch`** — live activity log with clickable GitHub links, in a new terminal window
 - **`/breeze-upgrade`** — pull the latest code (no restart needed)

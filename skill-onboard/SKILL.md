@@ -81,6 +81,21 @@ Do **not** offer tray when:
 On Darwin + first run + they said nothing about tray: you may offer
 **once**, recommended **Skip tray**.
 
+### Runtime (optional)
+
+Closed if `runtime_saved` is `grok`, `codex`, or `claude` **and** they
+did not ask to change it.
+
+Still open on first run, or if they said “use grok / claude / codex”.
+Chat answers count. Valid values only: `grok`, `codex`, `claude`.
+
+To switch later without touching repos: run
+`breeze-runner runtime grok` (or `/breeze-runtime`). Do **not** call
+apply just to change runtime.
+
+On first run with no mention: you may ask **once**. Recommend whichever
+of grok/codex/claude is actually on PATH.
+
 ### Start
 
 Closed if they already said start or don’t start.
@@ -104,12 +119,14 @@ Do not ask poll interval (10 minutes).
 ```bash
 APPLY="$REPO/bin/breeze-onboard-apply"
 # example after chat “只要 tornado-doc/tdoc，不要 tray，启动”
-bash "$APPLY" --allow-repo tornado-doc/tdoc --start
+bash "$APPLY" --allow-repo tornado-doc/tdoc --runtime grok --start
 ```
 
+Pass `--runtime grok|codex|claude` when that decision is new or changed.
 Pass `--tray` / `--open-tray` only on explicit opt-in. Pass `--start` to
-start or restart. If nothing changed and daemon is already correct: skip
-apply, just report.
+start or restart. If they only want to switch runtime and the allowlist
+is already valid: skip apply, run `"$REPO/breeze-runner/target/release/breeze-runner" runtime <name>`.
+If nothing changed and daemon is already correct: skip apply, just report.
 
 Symlink skills if missing:
 
@@ -119,6 +136,7 @@ ln -sfn "$REPO/skill" "$HOME/.claude/skills/breeze"
 ln -sfn "$REPO/skill-watch" "$HOME/.claude/skills/breeze-watch"
 ln -sfn "$REPO/skill-upgrade" "$HOME/.claude/skills/breeze-upgrade"
 ln -sfn "$REPO/skill-onboard" "$HOME/.claude/skills/breeze-onboard"
+ln -sfn "$REPO/skill-runtime" "$HOME/.claude/skills/breeze-runtime"
 ```
 
 ## 4. Report
@@ -127,6 +145,7 @@ Re-run probe. Tell them:
 
 - GitHub login breeze will post as
 - allowlist
+- review runtime (`agent:` from `breeze-runner status`, or `breeze-runner runtime`)
 - daemon running or not (from `breeze-runner status` `allowed repos`, not
   only the yaml)
 - tray only if Darwin: installed, skipped, or failed (failure is not fatal)

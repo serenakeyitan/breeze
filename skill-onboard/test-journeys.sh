@@ -26,4 +26,10 @@ pass "J12 config only, no tray"
 "$APPLY" --allow-repo tornado-doc/tdoc --no-tray --no-start
 pass "J1 flags without tray"
 
+"$APPLY" --allow-repo tornado-doc/tdoc --runtime grok --no-start --no-tray
+grep -qx 'grok' "$BREEZE_DIR/runtime" || fail "runtime file"
+pass "runtime grok saved"
+
+"$APPLY" --allow-repo tornado-doc/tdoc --runtime nope --no-start && fail "accepted bad runtime" || pass "reject bad runtime"
+
 echo ALL JOURNEY MECHANICS PASSED

@@ -51,6 +51,18 @@ if [ -x "$REPO/breeze-runner/target/release/breeze-runner" ]; then
   fi
 fi
 
+runtime_saved=""
+[ -f "$BREEZE_DIR/runtime" ] && runtime_saved="$(tr -d '[:space:]' < "$BREEZE_DIR/runtime")"
+runtime_live=""
+LAST_START="${BREEZE_HOME:-$HOME/.breeze/runner}/last-start.env"
+[ -f "$LAST_START" ] && runtime_live="$(awk -F= '$1=="runners"{print $2}' "$LAST_START" | tr -d '[:space:]')"
+grok_ok=false
+command -v grok >/dev/null && grok_ok=true
+codex_ok=false
+command -v codex >/dev/null && codex_ok=true
+claude_ok=false
+command -v claude >/dev/null && claude_ok=true
+
 tray_installed=false
 [ -x "$BREEZE_DIR/tray/BreezeTray.app/Contents/MacOS/BreezeTray" ] && tray_installed=true
 
@@ -74,6 +86,11 @@ printf '"config_exists":%s,' "$config_exists"
 printf '"config_is_all":%s,' "$config_is_all"
 printf '"config_repos":%s,' "$(printf '%s' "$config_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
 printf '"runner_running":%s,' "$runner_running"
+printf '"runtime_saved":%s,' "$(printf '%s' "$runtime_saved" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"runtime_live":%s,' "$(printf '%s' "$runtime_live" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"grok_ok":%s,' "$grok_ok"
+printf '"codex_ok":%s,' "$codex_ok"
+printf '"claude_ok":%s,' "$claude_ok"
 printf '"tray_installed":%s,' "$tray_installed"
 printf '"recent_repos":%s' "$(printf '%s' "$recent_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
 printf '}\n'

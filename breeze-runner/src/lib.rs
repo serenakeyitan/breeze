@@ -32,6 +32,7 @@ pub fn main_entry(args: Vec<String>) -> AppResult<()> {
         CommandKind::Cleanup => service.cleanup(),
         CommandKind::Stop => service.stop(),
         CommandKind::Poll => service.poll_inbox(),
+        CommandKind::Runtime => service.runtime_command(),
         CommandKind::Help => {
             println!("{}", Config::usage());
             Ok(())

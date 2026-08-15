@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ALLOW_REPO=""
+RUNTIME=""
 TRAY=0
 OPEN_TRAY=0
 START=0
@@ -14,13 +15,14 @@ START=0
 while [ "${1:-}" != "" ]; do
   case "$1" in
     --allow-repo) ALLOW_REPO="$2"; shift 2 ;;
+    --runtime)    RUNTIME="$2"; shift 2 ;;
     --tray)       TRAY=1; shift ;;
     --no-tray)    TRAY=0; shift ;;
     --open-tray)  OPEN_TRAY=1; shift ;;
     --start)      START=1; shift ;;
     --no-start)   START=0; shift ;;
     --help|-h)
-      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--start] [--tray] [--open-tray]"
+      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--runtime grok|codex|claude] [--start] [--tray] [--open-tray]"
       echo "tray flags are optional; omit them to skip the menu bar app"
       exit 0 ;;
     *)
@@ -75,6 +77,17 @@ mkdir -p "$BREEZE_DIR"
 echo "WROTE_CONFIG: $BREEZE_DIR/config.yaml"
 echo "REPOS: $(IFS=,; echo "${CLEAN[*]}")"
 
+if [ -n "$RUNTIME" ]; then
+  case "$RUNTIME" in
+    grok|codex|claude) ;;
+    *)
+      echo "ERROR: runtime must be grok, codex, or claude" >&2
+      exit 2 ;;
+  esac
+  printf '%s\n' "$RUNTIME" > "$BREEZE_DIR/runtime"
+  echo "RUNTIME: $RUNTIME"
+fi
+
 if [ "$START" = "1" ]; then
   RUNNER="$REPO/breeze-runner/target/release/breeze-runner"
   if [ ! -x "$RUNNER" ]; then
@@ -88,8 +101,10 @@ if [ "$START" = "1" ]; then
   fi
   SCOPE="$(IFS=,; echo "${CLEAN[*]}")"
   "$RUNNER" stop >/dev/null 2>&1 || true
-  "$RUNNER" start --allow-repo "$SCOPE"
-  echo "STARTED: --allow-repo $SCOPE"
+  START_ARGS=(--allow-repo "$SCOPE")
+  [ -n "$RUNTIME" ] && START_ARGS+=(--runner "$RUNTIME")
+  "$RUNNER" start "${START_ARGS[@]}"
+  echo "STARTED: --allow-repo $SCOPE${RUNTIME:+ --runner $RUNTIME}"
 fi
 
 if [ "$TRAY" = "1" ]; then

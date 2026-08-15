@@ -1,9 +1,10 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 use crate::util::{AppResult, app_error, home_dir};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandKind {
     Doctor,
     Run,
@@ -13,6 +14,7 @@ pub enum CommandKind {
     Cleanup,
     Stop,
     Poll,
+    Runtime,
     Help,
 }
 
@@ -138,9 +140,18 @@ pub struct Config {
     pub dry_run: bool,
     pub http_port: u16,
     pub http_disabled: bool,
+    pub set_runtime: bool,
 }
 
 impl Config {
+    pub fn runners_csv(&self) -> String {
+        self.runners
+            .iter()
+            .map(|runner| runner.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
     pub fn parse(args: Vec<String>) -> AppResult<Self> {
         let mut iter = args.into_iter();
         let _program = iter.next();
@@ -156,6 +167,16 @@ impl Config {
             Some("cleanup") => (CommandKind::Cleanup, iter.collect()),
             Some("stop") => (CommandKind::Stop, iter.collect()),
             Some("poll") => (CommandKind::Poll, iter.collect()),
+            Some("runtime") => {
+                let mut rest: Vec<String> = iter.collect();
+                if rest
+                    .first()
+                    .is_some_and(|value| matches!(value.as_str(), "grok" | "codex" | "claude"))
+                {
+                    rest.insert(0, "--runner".to_string());
+                }
+                (CommandKind::Runtime, rest)
+            }
             Some("help") | Some("--help") | Some("-h") => (CommandKind::Help, iter.collect()),
             Some(other) if other.starts_with('-') => {
                 let mut all = vec![other.to_string()];
@@ -175,9 +196,12 @@ impl Config {
                 .unwrap_or_default()
                 .as_str(),
         )?;
+        let mut runner_explicit = env::var("BREEZE_RUNNERS").is_ok();
         let mut runners = parse_runners(
             env::var("BREEZE_RUNNERS")
-                .unwrap_or_else(|_| "codex,claude".to_string())
+                .ok()
+                .or_else(read_preferred_runtime)
+                .unwrap_or_else(|| "codex,claude".to_string())
                 .as_str(),
         )?;
         let mut max_parallel = parse_usize_env("BREEZE_MAX_PARALLEL").unwrap_or(20);
@@ -224,6 +248,7 @@ impl Config {
                 }
                 "--runner" | "--runners" => {
                     runners = parse_runners(&next_value(&mut index)?)?;
+                    runner_explicit = true;
                 }
                 "--max-parallel" => max_parallel = parse_usize(&next_value(&mut index)?)?,
                 "--poll-interval-secs" => poll_interval_secs = parse_u64(&next_value(&mut index)?)?,
@@ -313,6 +338,7 @@ impl Config {
             dry_run,
             http_port,
             http_disabled,
+            set_runtime: matches!(command, CommandKind::Runtime) && runner_explicit,
         })
     }
 
@@ -341,6 +367,7 @@ impl Config {
             dry_run: false,
             http_port: 7878,
             http_disabled: false,
+            set_runtime: false,
         }
     }
 
@@ -359,6 +386,7 @@ COMMANDS
   cleanup    Remove stale task workspaces
   stop       Stop the background service for the active gh identity
   poll       Fetch notifications, enrich labels, and write ~/.breeze/inbox.json
+  runtime    Show or switch the review agent (grok, codex, claude)
   help       Show this help
 
 FLAGS
@@ -407,6 +435,36 @@ ENV
   BREEZE_HTTP_PORT
   BREEZE_HTTP_DISABLED"
     }
+}
+
+pub fn preferred_runtime_path() -> PathBuf {
+    env::var_os("BREEZE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            home_dir()
+                .map(|home| home.join(".breeze"))
+                .unwrap_or_else(|_| PathBuf::from(".breeze"))
+        })
+        .join("runtime")
+}
+
+pub fn read_preferred_runtime() -> Option<String> {
+    let value = fs::read_to_string(preferred_runtime_path()).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+pub fn write_preferred_runtime(value: &str) -> AppResult<()> {
+    let path = preferred_runtime_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, format!("{value}\n"))?;
+    Ok(())
 }
 
 fn parse_runners(value: &str) -> AppResult<Vec<RunnerKind>> {
@@ -517,6 +575,27 @@ mod tests {
         assert_eq!(config.notification_lookback_secs, 7200);
         assert_eq!(config.gh_write_cooldown_ms, 1500);
         assert!(config.dry_run);
+    }
+
+    #[test]
+    fn runtime_positional_selects_agent() {
+        let show = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "runtime".to_string(),
+        ])
+        .expect("runtime show should parse");
+        assert_eq!(show.command, CommandKind::Runtime);
+        assert!(!show.set_runtime);
+
+        let set = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "runtime".to_string(),
+            "grok".to_string(),
+        ])
+        .expect("runtime grok should parse");
+        assert_eq!(set.command, CommandKind::Runtime);
+        assert!(set.set_runtime);
+        assert_eq!(set.runners, vec![RunnerKind::Grok]);
     }
 
     #[test]

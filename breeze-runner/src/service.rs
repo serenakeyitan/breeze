@@ -10,7 +10,9 @@ use std::thread;
 use std::time::Duration;
 
 use crate::broker::GhBroker;
-use crate::config::{CommandKind, Config};
+use crate::config::{
+    read_preferred_runtime, write_preferred_runtime, CommandKind, Config, RepoFilter,
+};
 use crate::gh::{GhClient, should_ignore_latest_self_activity};
 use crate::gh_executor::GhExecutor;
 use crate::identity::{Identity, resolve_identity};
@@ -159,6 +161,10 @@ impl Service {
                 self.config.repo_filter.display_patterns()
             }
         );
+        println!(
+            "agent: {}",
+            read_preferred_runtime().unwrap_or_else(|| self.config.runners_csv())
+        );
         if let Some(lock) = lock {
             if lock_is_live(&lock) {
                 println!(
@@ -252,8 +258,103 @@ impl Service {
         self.store.write_runtime_status(&values)
     }
 
+    pub fn runtime_command(&mut self) -> AppResult<()> {
+        let saved = read_preferred_runtime().unwrap_or_else(|| "unset".to_string());
+        println!("breeze-runner runtime");
+        println!("saved: {saved}");
+        println!("available: grok, codex, claude");
+        if !self.config.set_runtime {
+            println!("live: {}", self.live_agent_label()?);
+            println!("set with: breeze-runner runtime grok|codex|claude");
+            return Ok(());
+        }
+
+        let selected = self.config.runners_csv();
+        write_preferred_runtime(&selected)?;
+        println!("SAVED: {selected}");
+
+        let lock = find_lock(&self.store.locks_dir, &self.identity, &self.config.profile)?;
+        if !lock.as_ref().is_some_and(lock_is_live) {
+            println!("daemon not running; next start will use {selected}");
+            return Ok(());
+        }
+
+        let last = self.load_last_start()?;
+        let allow = last
+            .get("allow_repo")
+            .cloned()
+            .filter(|value| !value.is_empty() && value != "all")
+            .or_else(|| {
+                self.store
+                    .read_runtime_status()
+                    .ok()
+                    .and_then(|status| status.get("allowed_repos").cloned())
+                    .filter(|value| !value.is_empty() && value != "all")
+            });
+        let Some(allow) = allow else {
+            return Err(app_error(
+                "cannot restart without an explicit allow-repo; start with --allow-repo owner/repo",
+            ));
+        };
+        self.config.repo_filter = RepoFilter::parse_csv(&allow)?;
+        if let Some(port) = last.get("http_port").and_then(|value| value.parse().ok()) {
+            self.config.http_port = port;
+        }
+        if let Some(poll) = last
+            .get("poll_interval_secs")
+            .and_then(|value| value.parse().ok())
+        {
+            self.config.poll_interval_secs = poll;
+        }
+        self.start_background()
+    }
+
+    fn last_start_path(&self) -> PathBuf {
+        self.config.home.join("last-start.env")
+    }
+
+    fn persist_last_start(&self) -> AppResult<()> {
+        let allow = if self.config.repo_filter.is_empty() {
+            String::new()
+        } else {
+            self.config.repo_filter.cli_value()
+        };
+        write_text(
+            &self.last_start_path(),
+            &format!(
+                "allow_repo={allow}\nhttp_port={}\npoll_interval_secs={}\nrunners={}\n",
+                self.config.http_port,
+                self.config.poll_interval_secs,
+                self.config.runners_csv()
+            ),
+        )
+    }
+
+    fn load_last_start(&self) -> AppResult<HashMap<String, String>> {
+        let contents = read_text_if_exists(&self.last_start_path())?.unwrap_or_default();
+        let mut values = HashMap::new();
+        for line in contents.lines() {
+            if let Some((key, value)) = line.split_once('=') {
+                values.insert(key.to_string(), value.to_string());
+            }
+        }
+        Ok(values)
+    }
+
+    fn live_agent_label(&self) -> AppResult<String> {
+        let lock = find_lock(&self.store.locks_dir, &self.identity, &self.config.profile)?;
+        if lock.as_ref().is_some_and(lock_is_live) {
+            if let Some(runners) = self.load_last_start()?.get("runners").cloned() {
+                return Ok(runners);
+            }
+        }
+        Ok("not running".to_string())
+    }
+
     pub fn start_background(&mut self) -> AppResult<()> {
         ensure_dir(&self.store.logs_dir)?;
+        write_preferred_runtime(&self.config.runners_csv())?;
+        self.persist_last_start()?;
         self.prime_runtime_for_start()?;
         let log_path = self
             .store
