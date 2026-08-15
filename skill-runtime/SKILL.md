@@ -23,7 +23,7 @@ LINK=""
 REPO=""
 if [ -n "$LINK" ]; then
   TARGET="$(readlink "$LINK")"
-  REPO="$(cd "$(dirname "$TARGET")/.." && pwd)"
+  REPO="$(cd "$(dirname "$TARGET")" && pwd)"
 fi
 [ -z "$REPO" ] && [ -x "$HOME/breeze/breeze-runner/target/release/breeze-runner" ] && REPO="$HOME/breeze"
 RUNNER="$REPO/breeze-runner/target/release/breeze-runner"
