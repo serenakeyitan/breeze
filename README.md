@@ -1,48 +1,72 @@
-# breeze
+# GitHub PR auto review
 
-GitHub PR auto review from your own GitHub account. A local daemon reviews PRs, leaves comments, and uses your coding plan. Runs 24/7 on your machine. Optional macOS menu bar tray.
+**breeze** reviews pull requests from **your** GitHub account. A local daemon watches review requests, uses your coding plan, and posts the audit as you. It runs on your machine. The macOS menu bar tray is optional.
 
 ```
 /breeze: 52 PRs · 3 issues · 1 discussions (+2 new)
 ```
 
-## What it does
+## Onboard
 
-1. **Polls GitHub** every 60 seconds for all your notifications (PRs, issues, discussions, review requests, mentions)
-2. **Shows a summary** in your Claude Code statusline with a terminal bell on new items
-3. **Type `/breeze`** to see your inbox grouped by project with clickable GitHub links
-4. **Pick a notification** and the agent summarizes the context, suggests an action with a confidence level
-5. **Act on it** in natural language ("approve this PR", "mark for human review", "this is handled")
+Two steps. The first only installs tools. The second asks you which repo to review, then starts the daemon.
 
-breeze uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
+### 1. Install tools
 
-## Install
+Prerequisites: [GitHub CLI](https://cli.github.com/) (`gh auth login`, `repo` scope), [jq](https://jqlang.github.io/jq/), [Rust](https://rustup.rs/) (`cargo`, needed to build and start the daemon), and a coding agent that can run skills (Claude Code, Codex, Grok, …).
 
 ```bash
-git clone https://github.com/serenakeyitan/breeze.git
-cd breeze
+git clone https://github.com/serenakeyitan/breeze.git ~/breeze
+cd ~/breeze
 ./setup
 ```
 
-`./setup` only installs local tools (skills, optional `breeze-runner` build, statusline). It does **not** start reviewing and never writes `repos: all`.
+`./setup` links `/breeze` and `/breeze-onboard`, and builds `breeze-runner` if `cargo` is available. It does **not** start reviewing. It never writes `repos: all`.
 
-Then tell your coding agent **`/breeze-onboard`**. That skill probes what is already done and asks only what is left: which `owner/repo` to review, and whether to start the daemon. The macOS tray is optional and off by default.
+### 2. Tell your coding agent `/breeze-onboard`
 
-### Prerequisites
+That skill looks at what is already done and asks only what is still open. You can answer in one sentence:
 
-- [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated with `repo` scope
-- [jq](https://jqlang.github.io/jq/) installed
-- Rust toolchain (`cargo`) — *recommended*, enables the unified daemon and browser dashboard
-- Claude Code
+> just `owner/repo`, no tray, start the daemon
+
+It will:
+
+1. Stop if `gh` is not logged in (`gh auth login`, then run `/breeze-onboard` again).
+2. Ask which **`owner/repo`** to review. Explicit list only — never `all`, never `org/*`.
+3. Start the daemon on that allowlist (unless you say not to). Poll interval is 10 minutes.
+4. On macOS, offer the menu bar tray **once**. Default is skip. Say you want the tray if you want it.
+
+When it finishes, breeze posts as whatever `gh` is logged in as. PRs are reviewed only when that account is requested as a reviewer (CODEOWNERS or a manual review request).
+
+### Later
+
+| You want to… | Do this |
+|---|---|
+| Add another repo | `/breeze-onboard` again and name it. Existing repos stay; the daemon restarts with the union. |
+| See status | `/breeze-onboard` again, or `breeze-runner status` |
+| Write config only | say the repos and “don’t start” |
+| Install the tray later | `/breeze-onboard` and say you want the tray |
+
+Do not edit `~/.breeze/config.yaml` to `repos: all`. If an old config has `all`, `/breeze-onboard` will ask you to pick explicit repos before anything starts.
+
+## What it does
+
+1. **Reviews PRs** on the repos you allowlisted, as your GitHub user, when you are requested as reviewer
+2. **Polls GitHub** for your notifications (PRs, issues, discussions, review requests, mentions)
+3. **Shows a summary** in your Claude Code statusline with a terminal bell on new items
+4. **Type `/breeze`** to see your inbox grouped by project with clickable GitHub links
+5. **Pick a notification** and the agent summarizes the context, suggests an action with a confidence level
+6. **Act on it** in natural language ("approve this PR", "mark for human review", "this is handled")
+
+breeze uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
 
 ## Commands
 
-- **`/breeze-onboard`** — ask-only setup: repos + start daemon; tray is optional
+- **`/breeze-onboard`** — set up or change which repos to review; start the daemon; tray is optional
 - **`/breeze`** — open the inbox dashboard, pick a notification, act on it
 - **`/breeze-watch`** — live activity log with clickable GitHub links, in a new terminal window
 - **`/breeze-upgrade`** — pull the latest code (no restart needed)
 - **`http://127.0.0.1:7878`** — live web dashboard (when the unified daemon is installed)
-- **menu bar tray** — Pause/Resume the daemon and open PRs labeled `breeze:human` (`tray-mac/`)
+- **menu bar tray** — optional; Pause/Resume the daemon and open PRs labeled `breeze:human` (`tray-mac/`)
 
 ## Usage
 
@@ -96,10 +120,12 @@ Edit `~/.breeze/config.yaml`:
 
 ```yaml
 repos:
-  - all                    # or list specific repos: owner/repo1, owner/repo2
-poll_interval: 60          # seconds between polls
+  - owner/repo             # explicit only — never `all`
+poll_interval: 600         # 10 minutes
 footer: true               # append "sent via breeze" to comments
 ```
+
+Prefer `/breeze-onboard` over hand-editing this file. The daemon also needs `--allow-repo owner/repo` when it starts; onboard writes both.
 
 ## How it works
 
