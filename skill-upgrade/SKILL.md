@@ -38,7 +38,7 @@ else
 fi
 ```
 
-If `NOT_FOUND`: Tell the user "Could not find breeze repo. Run `git clone https://github.com/agent-team-foundation/breeze.git ~/breeze && cd ~/breeze && ./setup`"
+If `NOT_FOUND`: Tell the user "Could not find breeze repo. Run `git clone https://github.com/serenakeyitan/breeze.git ~/breeze && cd ~/breeze && ./setup`"
 
 If `ALREADY_UP_TO_DATE`: Tell the user "breeze is already up to date."
 

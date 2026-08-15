@@ -298,7 +298,7 @@ $STATUS_MGR set <notification-id> human --by "$SESSION_ID" --reason "Requested c
 [actual comment body here]
 
 ---
-_sent via [breeze](https://github.com/agent-team-foundation/breeze) on behalf of @USERNAME_
+_sent via [breeze](https://github.com/serenakeyitan/breeze) on behalf of @USERNAME_
 ```
 
 The instruction block at the top ensures any agent reading the thread sees the labeling convention before anything else. This is how breeze propagates the protocol to third-party agents without requiring them to install anything.

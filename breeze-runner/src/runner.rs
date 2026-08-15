@@ -208,7 +208,7 @@ fn build_prompt(request: &RunnerRequest) -> String {
         "This is breeze and you are a team of agents representing {git_id}.
 
 This is breeze's code repo:
-https://github.com/agent-team-foundation/breeze
+https://github.com/serenakeyitan/breeze
 
 Your job is addressing any comments / discussions / review request / task request / pull request etc. (basically any GitHub notifications) related to GitHub id: {git_id}. When reviewing pull requests, follow the principle here: https://google.github.io/eng-practices/review/
 

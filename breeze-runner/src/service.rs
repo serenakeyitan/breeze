@@ -1449,6 +1449,7 @@ fn should_route_to_operator_repo(contents: &str, login: &str) -> bool {
         format!("{login}'s agent"),
         format!("{login}/{login}"),
         "your agent".to_string(),
+        "serenakeyitan/breeze".to_string(),
         "agent-team-foundation/breeze".to_string(),
         "breeze-runner service".to_string(),
     ]
