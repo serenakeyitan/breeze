@@ -59,6 +59,27 @@ Do not edit `~/.breeze/config.yaml` to `repos: all`. If an old config has `all`,
 
 breeze uses **GitHub labels** to track notification status. The source of truth lives on GitHub, not your laptop. This means the state is visible to your team, visible on github.com, and survives if you reinstall.
 
+## Why not a loop, Greptile, or Copilot
+
+The review job is a loop: poll GitHub, see `review_requested`, run an agent, comment as you. A 40-line script can do that once. breeze is that loop plus the shell you need if it is going to stay correct.
+
+| | Your own loop | Greptile / Copilot | breeze |
+|---|---|---|---|
+| Who comments | You, if you wired `gh` | Their bot (`greptile-apps`, Copilot) | **You** — same account as `gh auth` |
+| Whose model / bill | Whatever you hardcoded | Their cloud, their seat | **Your existing token subscription** (Claude, Codex, Grok, …) |
+| Review style | Whatever you pasted into the script | Their default + a rules file | **Your coding plan**, in your agent session |
+| Where it runs | A terminal you must keep open | Their servers, via a GitHub App or org Copilot seats | Your machine, scoped to `owner/repo` |
+| State after restart | Easy to re-review or miss | Their dashboard | GitHub labels (`breeze:wip` / `human` / `done`) |
+| When you are needed | Script has no inbox | Their UI / mention the bot | `/breeze`, statusline, optional tray |
+
+**vs a loop.** Same kernel. The loop does not remember work across restarts, does not stop two agents from reviewing the same PR, does not give you a place for the 1% that needs a human, and dies when the session dies. breeze keeps an allowlist (never `repos: all`), claim locks, labels on GitHub, and a daemon you can pause, add a repo to, or ask “what is in the inbox.”
+
+**vs Greptile.** No GitHub App on the org. After a repo moves orgs, Greptile goes silent until someone reinstalls their app. breeze does not care — it is your `gh` login on your laptop. Comments look like a teammate reviewed, not a vendor bot. You already pay for a coding-agent subscription; you do not buy another review product.
+
+**vs GitHub Copilot review.** Copilot needs Copilot seats on the org and posts as Copilot. Zero seats means zero reviews. breeze uses the agent you already run locally. Same as Greptile: the audit is yours, on your token, as your user.
+
+If you only want one repo auto-audited tonight, write a loop. If you want a GitHub presence that stays scoped, restarts cleanly, and spends your own subscription instead of a bot vendor, use breeze.
+
 ## Commands
 
 - **`/breeze-onboard`** — set up or change which repos to review; start the daemon; tray is optional
