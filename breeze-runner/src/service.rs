@@ -329,6 +329,14 @@ impl Service {
         if let Some(model) = &self.config.claude_model {
             command.arg("--claude-model").arg(model);
         }
+        if let Some(model) = &self.config.grok_model {
+            command.arg("--grok-model").arg(model);
+        }
+        if self.config.http_disabled {
+            command.arg("--no-http");
+        } else {
+            command.arg("--http-port").arg(self.config.http_port.to_string());
+        }
         let mut child = command
             .spawn()
             .map_err(|error| app_error(format!("failed to spawn background breeze-runner: {error}")))?;
@@ -1145,6 +1153,16 @@ impl Service {
         if let Some(model) = &self.config.claude_model {
             arguments.push("--claude-model".to_string());
             arguments.push(model.clone());
+        }
+        if let Some(model) = &self.config.grok_model {
+            arguments.push("--grok-model".to_string());
+            arguments.push(model.clone());
+        }
+        if self.config.http_disabled {
+            arguments.push("--no-http".to_string());
+        } else {
+            arguments.push("--http-port".to_string());
+            arguments.push(self.config.http_port.to_string());
         }
 
         let arguments_xml = arguments

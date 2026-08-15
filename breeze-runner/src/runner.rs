@@ -51,6 +51,7 @@ impl RunnerPool {
             let model = match runner {
                 RunnerKind::Codex => config.codex_model.clone(),
                 RunnerKind::Claude => config.claude_model.clone(),
+                RunnerKind::Grok => config.grok_model.clone(),
             };
             runners.push(RunnerSpec {
                 kind: runner.clone(),
@@ -59,7 +60,7 @@ impl RunnerPool {
         }
         if runners.is_empty() {
             return Err(app_error(
-                "no configured runner binary is available in PATH (need codex and/or claude)",
+                "no configured runner binary is available in PATH (need grok, codex, and/or claude)",
             ));
         }
         Ok(Self {
@@ -141,6 +142,33 @@ impl RunnerSpec {
                     .env("BREEZE_SNAPSHOT_DIR", &request.snapshot_dir)
                     .env("BREEZE_TASK_DIR", &request.task_dir);
                 command.arg(&prompt);
+                command.stdout(Stdio::from(stdout_file));
+                command.stderr(Stdio::from(stderr_file));
+                let status = command.status()?;
+                let stdout = read_text_if_exists(&stdout_path)?.unwrap_or_default();
+                crate::util::write_text(&output_path, &stdout)?;
+                status
+            }
+            RunnerKind::Grok => {
+                let mut command = Command::new("grok");
+                command
+                    .arg("--cwd")
+                    .arg(&request.workspace_dir)
+                    .arg("--always-approve")
+                    .arg("--permission-mode")
+                    .arg("bypassPermissions")
+                    .arg("--output-format")
+                    .arg("plain")
+                    .arg("--prompt-file")
+                    .arg(&prompt_path);
+                if let Some(model) = &self.model {
+                    command.arg("--model").arg(model);
+                }
+                command
+                    .env("PATH", &path)
+                    .env("BREEZE_BROKER_DIR", &request.gh_broker_dir)
+                    .env("BREEZE_SNAPSHOT_DIR", &request.snapshot_dir)
+                    .env("BREEZE_TASK_DIR", &request.task_dir);
                 command.stdout(Stdio::from(stdout_file));
                 command.stderr(Stdio::from(stderr_file));
                 let status = command.status()?;

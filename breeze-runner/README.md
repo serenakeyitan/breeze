@@ -42,7 +42,7 @@ cargo run --manifest-path breeze-runner/Cargo.toml -- stop
 - Sweeps actionable notification threads from the last 24 hours on every poll, even if they are already marked read, and only uses GitHub search as a slower backfill path.
 - Creates one isolated `git worktree` per scheduled task.
 - Prepares a local snapshot for each task before the agent starts so the agent can inspect GitHub context without re-fetching it.
-- Launches `codex` and/or `claude` in round-robin order with dangerous local permissions.
+- Launches `grok`, `codex`, and/or `claude` in the configured order with dangerous local permissions.
 - Keeps local agent/worktree fan-out high while brokering all in-task `gh` commands through a single paced queue.
 - Persists task state, lock state, logs, and workspaces under `~/.breeze/runner` by default, and writes the TUI inbox to `~/.breeze/inbox.json` (override via `BREEZE_DIR`).
 

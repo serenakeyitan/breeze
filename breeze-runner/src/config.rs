@@ -20,6 +20,7 @@ pub enum CommandKind {
 pub enum RunnerKind {
     Codex,
     Claude,
+    Grok,
 }
 
 impl RunnerKind {
@@ -27,6 +28,7 @@ impl RunnerKind {
         match self {
             RunnerKind::Codex => "codex",
             RunnerKind::Claude => "claude",
+            RunnerKind::Grok => "grok",
         }
     }
 
@@ -131,6 +133,7 @@ pub struct Config {
     pub workspace_ttl_secs: u64,
     pub codex_model: Option<String>,
     pub claude_model: Option<String>,
+    pub grok_model: Option<String>,
     pub disclosure_text: String,
     pub dry_run: bool,
     pub http_port: u16,
@@ -192,6 +195,7 @@ impl Config {
             parse_u64_env("BREEZE_WORKSPACE_TTL_SECS").unwrap_or(60 * 60 * 24 * 3);
         let mut codex_model = env::var("BREEZE_CODEX_MODEL").ok();
         let mut claude_model = env::var("BREEZE_CLAUDE_MODEL").ok();
+        let mut grok_model = env::var("BREEZE_GROK_MODEL").ok();
         let mut disclosure_text = env::var("BREEZE_DISCLOSURE").unwrap_or_else(|_| {
             "Agent note: this reply was prepared and posted by breeze running locally for the active account."
                 .to_string()
@@ -239,6 +243,7 @@ impl Config {
                 "--workspace-ttl-secs" => workspace_ttl_secs = parse_u64(&next_value(&mut index)?)?,
                 "--codex-model" => codex_model = Some(next_value(&mut index)?),
                 "--claude-model" => claude_model = Some(next_value(&mut index)?),
+                "--grok-model" => grok_model = Some(next_value(&mut index)?),
                 "--disclosure" => disclosure_text = next_value(&mut index)?,
                 "--dry-run" => dry_run = true,
                 "--no-dry-run" => dry_run = false,
@@ -303,6 +308,7 @@ impl Config {
             workspace_ttl_secs,
             codex_model,
             claude_model,
+            grok_model,
             disclosure_text,
             dry_run,
             http_port,
@@ -328,6 +334,7 @@ impl Config {
             workspace_ttl_secs: 60 * 60 * 24 * 3,
             codex_model: None,
             claude_model: None,
+            grok_model: None,
             disclosure_text:
                 "Agent note: this reply was prepared and posted by breeze running locally for the active account."
                     .to_string(),
@@ -359,7 +366,7 @@ FLAGS
   --host <host>                  GitHub host to use (default: github.com)
   --profile <name>               Lock partition for this automation profile
   --allow-repo <patterns>        Restrict processing to owner/repo or owner/* patterns
-  --runner <list>                Comma-separated runner order, e.g. codex,claude
+  --runner <list>                Comma-separated runner order, e.g. grok,codex,claude
   --max-parallel <n>             Max concurrent tasks (default: 20)
   --poll-interval-secs <n>       Dispatch poll cadence in seconds (default: 600)
   --inbox-poll-interval-secs <n> Inbox refresh cadence in seconds (default: 60)
@@ -372,6 +379,7 @@ FLAGS
   --workspace-ttl-secs <n>       Workspace retention after completion
   --codex-model <name>           Optional codex model override
   --claude-model <name>          Optional Claude model override
+  --grok-model <name>            Optional grok model override
   --disclosure <text>            Disclosure appended to public replies
   --dry-run                      Poll and schedule tasks without launching agents
   --http-port <n>                Port for the localhost HTTP/SSE server (default: 7878)
@@ -393,6 +401,7 @@ ENV
   BREEZE_WORKSPACE_TTL_SECS
   BREEZE_CODEX_MODEL
   BREEZE_CLAUDE_MODEL
+  BREEZE_GROK_MODEL
   BREEZE_DISCLOSURE
   BREEZE_DRY_RUN
   BREEZE_HTTP_PORT
@@ -410,6 +419,7 @@ fn parse_runners(value: &str) -> AppResult<Vec<RunnerKind>> {
         let runner = match trimmed {
             "codex" => RunnerKind::Codex,
             "claude" => RunnerKind::Claude,
+            "grok" => RunnerKind::Grok,
             other => return Err(app_error(format!("unsupported runner `{other}`"))),
         };
         if !parsed.contains(&runner) {
@@ -494,6 +504,14 @@ mod tests {
 
         assert_eq!(config.command, CommandKind::RunOnce);
         assert_eq!(config.runners, vec![RunnerKind::Claude, RunnerKind::Codex]);
+        let grok_only = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "run".to_string(),
+            "--runner".to_string(),
+            "grok".to_string(),
+        ])
+        .expect("grok runner should parse");
+        assert_eq!(grok_only.runners, vec![RunnerKind::Grok]);
         assert_eq!(config.max_parallel, 4);
         assert_eq!(config.search_reconcile_interval_secs, 3600);
         assert_eq!(config.notification_lookback_secs, 7200);
