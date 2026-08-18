@@ -124,6 +124,7 @@ pub struct Config {
     pub host: String,
     pub profile: String,
     pub repo_filter: RepoFilter,
+    pub author_follow_filter: RepoFilter,
     pub runners: Vec<RunnerKind>,
     pub max_parallel: usize,
     pub poll_interval_secs: u64,
@@ -196,6 +197,11 @@ impl Config {
                 .unwrap_or_default()
                 .as_str(),
         )?;
+        let mut author_follow_filter = RepoFilter::parse_csv(
+            env::var("BREEZE_AUTHOR_FOLLOW_REPOS")
+                .unwrap_or_default()
+                .as_str(),
+        )?;
         let mut runner_explicit = env::var("BREEZE_RUNNERS").is_ok();
         let mut runners = parse_runners(
             env::var("BREEZE_RUNNERS")
@@ -244,6 +250,9 @@ impl Config {
                 "--profile" => profile = next_value(&mut index)?,
                 "--allow-repo" | "--allow-repos" => {
                     repo_filter.merge(RepoFilter::parse_csv(&next_value(&mut index)?)?);
+                }
+                "--author-follow-repo" | "--author-follow-repos" => {
+                    author_follow_filter.merge(RepoFilter::parse_csv(&next_value(&mut index)?)?);
                 }
                 "--runner" | "--runners" => {
                     runners = parse_runners(&next_value(&mut index)?)?;
@@ -321,6 +330,7 @@ impl Config {
             host,
             profile,
             repo_filter,
+            author_follow_filter,
             runners,
             max_parallel,
             poll_interval_secs,
@@ -348,6 +358,7 @@ impl Config {
             host: "github.com".to_string(),
             profile: "default".to_string(),
             repo_filter: RepoFilter::default(),
+            author_follow_filter: RepoFilter::default(),
             runners: vec![RunnerKind::Codex, RunnerKind::Claude],
             max_parallel: 20,
             poll_interval_secs: 600,
@@ -395,6 +406,8 @@ FLAGS
   --host <host>                  GitHub host to use (default: github.com)
   --profile <name>               Lock partition for this automation profile
   --allow-repo <patterns>        Restrict processing to owner/repo or owner/* patterns
+  --author-follow-repo <repos>   Also review open PRs authored by this account
+                                 (GitHub will not review-request the author)
   --runner <list>                Comma-separated runner order, e.g. grok,codex,claude
   --max-parallel <n>             Max concurrent tasks (default: 20)
   --poll-interval-secs <n>       Dispatch poll cadence in seconds (default: 600)
@@ -419,6 +432,7 @@ ENV
   BREEZE_HOST
   BREEZE_PROFILE
   BREEZE_ALLOWED_REPOS
+  BREEZE_AUTHOR_FOLLOW_REPOS
   BREEZE_RUNNERS
   BREEZE_MAX_PARALLEL
   BREEZE_POLL_INTERVAL_SECS
@@ -576,6 +590,21 @@ mod tests {
         assert_eq!(config.notification_lookback_secs, 7200);
         assert_eq!(config.gh_write_cooldown_ms, 1500);
         assert!(config.dry_run);
+    }
+
+    #[test]
+    fn parses_author_follow_repo() {
+        let config = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "status".to_string(),
+            "--author-follow-repo".to_string(),
+            "serenakeyitan/tokentorrent".to_string(),
+        ])
+        .expect("author-follow should parse");
+        assert_eq!(
+            config.author_follow_filter.repos(),
+            &["serenakeyitan/tokentorrent".to_string()]
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ALLOW_REPO=""
+AUTHOR_FOLLOW=""
 RUNTIME=""
 TRAY=0
 OPEN_TRAY=0
@@ -15,6 +16,7 @@ START=0
 while [ "${1:-}" != "" ]; do
   case "$1" in
     --allow-repo) ALLOW_REPO="$2"; shift 2 ;;
+    --author-follow-repo) AUTHOR_FOLLOW="$2"; shift 2 ;;
     --runtime)    RUNTIME="$2"; shift 2 ;;
     --tray)       TRAY=1; shift ;;
     --no-tray)    TRAY=0; shift ;;
@@ -22,7 +24,7 @@ while [ "${1:-}" != "" ]; do
     --start)      START=1; shift ;;
     --no-start)   START=0; shift ;;
     --help|-h)
-      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--runtime grok|codex|claude] [--start] [--tray] [--open-tray]"
+      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--author-follow-repo owner/repo] [--runtime grok|codex|claude] [--start] [--tray] [--open-tray]"
       echo "tray flags are optional; omit them to skip the menu bar app"
       exit 0 ;;
     *)
@@ -58,6 +60,29 @@ if [ "${#CLEAN[@]}" -eq 0 ]; then
   exit 2
 fi
 
+if [ -z "$AUTHOR_FOLLOW" ] && [ -f "$BREEZE_DIR/runner/last-start.env" ]; then
+  AUTHOR_FOLLOW="$(awk -F= '/^author_follow_repo=/{print $2}' "$BREEZE_DIR/runner/last-start.env" | tail -n 1)"
+fi
+
+FOLLOW_CLEAN=()
+if [ -n "$AUTHOR_FOLLOW" ]; then
+  IFS=',' read -r -a FOLLOW_REPOS <<< "$AUTHOR_FOLLOW"
+  for raw in "${FOLLOW_REPOS[@]}"; do
+    repo="$(printf '%s' "$raw" | tr -d '[:space:]')"
+    [ -z "$repo" ] && continue
+    case "$repo" in
+      all|*'*'*|*'?'*)
+        echo "ERROR: refusing author-follow scope '$repo' — list explicit owner/repo values" >&2
+        exit 2 ;;
+    esac
+    if ! printf '%s' "$repo" | grep -Eq '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+      echo "ERROR: '$repo' is not owner/repo" >&2
+      exit 2
+    fi
+    FOLLOW_CLEAN+=("$repo")
+  done
+fi
+
 mkdir -p "$BREEZE_DIR"
 {
   echo "# breeze configuration"
@@ -65,6 +90,12 @@ mkdir -p "$BREEZE_DIR"
   for repo in "${CLEAN[@]}"; do
     echo "  - $repo"
   done
+  if [ "${#FOLLOW_CLEAN[@]}" -gt 0 ]; then
+    echo "author_follow_repos:"
+    for repo in "${FOLLOW_CLEAN[@]}"; do
+      echo "  - $repo"
+    done
+  fi
   echo "poll_interval: 600"
   echo "footer: true"
   echo "auto_mark_read: false"
@@ -100,11 +131,13 @@ if [ "$START" = "1" ]; then
     exit 1
   fi
   SCOPE="$(IFS=,; echo "${CLEAN[*]}")"
+  FOLLOW_SCOPE="$(IFS=,; echo "${FOLLOW_CLEAN[*]}")"
   "$RUNNER" stop >/dev/null 2>&1 || true
   START_ARGS=(--allow-repo "$SCOPE")
+  [ -n "$FOLLOW_SCOPE" ] && START_ARGS+=(--author-follow-repo "$FOLLOW_SCOPE")
   [ -n "$RUNTIME" ] && START_ARGS+=(--runner "$RUNTIME")
   "$RUNNER" start "${START_ARGS[@]}"
-  echo "STARTED: --allow-repo $SCOPE${RUNTIME:+ --runner $RUNTIME}"
+  echo "STARTED: --allow-repo $SCOPE${FOLLOW_SCOPE:+ --author-follow-repo $FOLLOW_SCOPE}${RUNTIME:+ --runner $RUNTIME}"
 fi
 
 if [ "$TRAY" = "1" ]; then

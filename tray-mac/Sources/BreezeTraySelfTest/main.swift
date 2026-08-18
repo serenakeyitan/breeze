@@ -63,16 +63,36 @@ let args = [
     "run",
     "--allow-repo",
     "tornado-doc/tdoc,example/other",
+    "--author-follow-repo",
+    "serenakeyitan/tokentorrent",
     "--http-port",
     "7888",
 ]
 let config = DaemonPlistParser.parseArguments(args)
 expect(config.allowedRepos == ["tornado-doc/tdoc", "example/other"], "plist allow-repo csv")
+expect(config.authorFollowRepos == ["serenakeyitan/tokentorrent"], "plist author-follow csv")
 expect(config.httpPort == 7888, "plist http-port")
 expect(config.executable?.hasSuffix("breeze-runner") == true, "plist executable")
 
 let start = DaemonCommand.startArguments(allowedRepos: ["tornado-doc/tdoc"], httpPort: 7888)
 expect(start == ["start", "--allow-repo", "tornado-doc/tdoc", "--http-port", "7888"], "start args")
+let startFollow = DaemonCommand.startArguments(
+    allowedRepos: ["tornado-doc/tdoc", "serenakeyitan/tokentorrent"],
+    httpPort: 7888,
+    authorFollowRepos: ["serenakeyitan/tokentorrent"]
+)
+expect(
+    startFollow == [
+        "start",
+        "--allow-repo",
+        "tornado-doc/tdoc,serenakeyitan/tokentorrent",
+        "--author-follow-repo",
+        "serenakeyitan/tokentorrent",
+        "--http-port",
+        "7888",
+    ],
+    "start args keep author-follow"
+)
 expect(!start.contains(where: { $0.contains("tree-repo") }), "no tree-repo flag")
 
 let status = """

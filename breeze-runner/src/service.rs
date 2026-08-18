@@ -13,7 +13,7 @@ use crate::broker::GhBroker;
 use crate::config::{
     read_preferred_runtime, write_preferred_runtime, CommandKind, Config, RepoFilter,
 };
-use crate::gh::{GhClient, should_ignore_latest_self_activity};
+use crate::gh::{GhClient, should_skip_self_activity_on_schedule};
 use crate::gh_executor::GhExecutor;
 use crate::identity::{Identity, resolve_identity};
 use crate::lock::{LockInfo, ServiceLock, find_lock, lock_is_live, remove_lock_dir, stop_process};
@@ -74,7 +74,8 @@ impl Service {
             config.host.clone(),
             config.repo_filter.clone(),
             executor.clone(),
-        );
+        )
+        .with_author_follow(config.author_follow_filter.clone());
         let gh_broker = GhBroker::new(store.broker_dir.clone(), executor)?;
         let runners = RunnerPool::detect(&config)?;
         let workspace_manager = WorkspaceManager::new(
@@ -159,6 +160,18 @@ impl Service {
                     .unwrap_or_else(|| "all".to_string())
             } else {
                 self.config.repo_filter.display_patterns()
+            }
+        );
+        println!(
+            "author-follow repos: {}",
+            if self.config.author_follow_filter.is_empty() {
+                runtime
+                    .get("author_follow_repos")
+                    .cloned()
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "none".to_string())
+            } else {
+                self.config.author_follow_filter.display_patterns()
             }
         );
         println!(
@@ -306,6 +319,13 @@ impl Service {
         {
             self.config.poll_interval_secs = poll;
         }
+        if let Some(follow) = last
+            .get("author_follow_repo")
+            .cloned()
+            .filter(|value| !value.is_empty())
+        {
+            self.config.author_follow_filter = RepoFilter::parse_csv(&follow)?;
+        }
         self.start_background()
     }
 
@@ -319,10 +339,15 @@ impl Service {
         } else {
             self.config.repo_filter.cli_value()
         };
+        let author_follow = if self.config.author_follow_filter.is_empty() {
+            String::new()
+        } else {
+            self.config.author_follow_filter.cli_value()
+        };
         write_text(
             &self.last_start_path(),
             &format!(
-                "allow_repo={allow}\nhttp_port={}\npoll_interval_secs={}\nrunners={}\n",
+                "allow_repo={allow}\nauthor_follow_repo={author_follow}\nhttp_port={}\npoll_interval_secs={}\nrunners={}\n",
                 self.config.http_port,
                 self.config.poll_interval_secs,
                 self.config.runners_csv()
@@ -373,6 +398,11 @@ impl Service {
         } else {
             Some(self.config.repo_filter.cli_value())
         };
+        let author_follow_value = if self.config.author_follow_filter.is_empty() {
+            None
+        } else {
+            Some(self.config.author_follow_filter.cli_value())
+        };
 
         if cfg!(target_os = "macos") && crate::util::which("launchctl").is_some() {
             return self.start_with_launchctl(
@@ -380,6 +410,7 @@ impl Service {
                 &log_path,
                 &runner_value,
                 repo_filter_value.as_deref(),
+                author_follow_value.as_deref(),
             );
         }
 
@@ -423,6 +454,9 @@ impl Service {
         }
         if let Some(repo_filter_value) = &repo_filter_value {
             command.arg("--allow-repo").arg(repo_filter_value);
+        }
+        if let Some(author_follow_value) = &author_follow_value {
+            command.arg("--author-follow-repo").arg(author_follow_value);
         }
         if let Some(model) = &self.config.codex_model {
             command.arg("--codex-model").arg(model);
@@ -766,8 +800,9 @@ impl Service {
             return Ok(false);
         }
         let latest_activity = self.gh.latest_visible_activity(candidate).unwrap_or(None);
-        if should_ignore_latest_self_activity(
+        if should_skip_self_activity_on_schedule(
             &self.identity.login,
+            &record.last_handled_updated_at,
             latest_activity.as_ref(),
             &candidate.updated_at,
         ) {
@@ -1087,6 +1122,14 @@ impl Service {
                     self.config.repo_filter.display_patterns()
                 },
             ),
+            (
+                "author_follow_repos".to_string(),
+                if self.config.author_follow_filter.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.config.author_follow_filter.display_patterns()
+                },
+            ),
             ("active_tasks".to_string(), active.len().to_string()),
             ("queued_tasks".to_string(), queued_tasks.to_string()),
             ("last_note".to_string(), crate::util::encode_multiline(note)),
@@ -1108,6 +1151,7 @@ impl Service {
         log_path: &std::path::Path,
         runner_value: &str,
         repo_filter_value: Option<&str>,
+        author_follow_value: Option<&str>,
     ) -> AppResult<()> {
         let plist_path = self.launchd_plist_path();
         if let Some(parent) = plist_path.parent() {
@@ -1115,7 +1159,13 @@ impl Service {
         }
         write_text(
             &plist_path,
-            &self.launchd_plist_contents(executable, log_path, runner_value, repo_filter_value),
+            &self.launchd_plist_contents(
+                executable,
+                log_path,
+                runner_value,
+                repo_filter_value,
+                author_follow_value,
+            ),
         )?;
 
         let domain = self.launchd_domain()?;
@@ -1211,6 +1261,7 @@ impl Service {
         log_path: &std::path::Path,
         runner_value: &str,
         repo_filter_value: Option<&str>,
+        author_follow_value: Option<&str>,
     ) -> String {
         let mut arguments = vec![
             executable.display().to_string(),
@@ -1243,6 +1294,10 @@ impl Service {
         if let Some(repo_filter_value) = repo_filter_value {
             arguments.push("--allow-repo".to_string());
             arguments.push(repo_filter_value.to_string());
+        }
+        if let Some(author_follow_value) = author_follow_value {
+            arguments.push("--author-follow-repo".to_string());
+            arguments.push(author_follow_value.to_string());
         }
         if self.config.dry_run {
             arguments.push("--dry-run".to_string());

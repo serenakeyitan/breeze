@@ -3,11 +3,13 @@ import Foundation
 public struct DaemonPlistConfig: Equatable, Sendable {
     public let executable: String?
     public let allowedRepos: [String]
+    public let authorFollowRepos: [String]
     public let httpPort: Int?
 
-    public init(executable: String?, allowedRepos: [String], httpPort: Int?) {
+    public init(executable: String?, allowedRepos: [String], httpPort: Int?, authorFollowRepos: [String] = []) {
         self.executable = executable
         self.allowedRepos = allowedRepos
+        self.authorFollowRepos = authorFollowRepos
         self.httpPort = httpPort
     }
 }
@@ -15,6 +17,7 @@ public struct DaemonPlistConfig: Equatable, Sendable {
 public enum DaemonPlistParser {
     public static func parseArguments(_ args: [String]) -> DaemonPlistConfig {
         var allowedRepos: [String] = []
+        var authorFollowRepos: [String] = []
         var httpPort: Int?
         var executable: String?
         if let first = args.first, first.hasSuffix("breeze-runner") || first.contains("breeze-runner") {
@@ -31,6 +34,14 @@ public enum DaemonPlistParser {
                 i += 2
                 continue
             }
+            if arg == "--author-follow-repo" || arg == "--author-follow-repos", i + 1 < args.count {
+                authorFollowRepos = args[i + 1]
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                i += 2
+                continue
+            }
             if arg == "--http-port", i + 1 < args.count {
                 httpPort = Int(args[i + 1])
                 i += 2
@@ -38,7 +49,12 @@ public enum DaemonPlistParser {
             }
             i += 1
         }
-        return DaemonPlistConfig(executable: executable, allowedRepos: allowedRepos, httpPort: httpPort)
+        return DaemonPlistConfig(
+            executable: executable,
+            allowedRepos: allowedRepos,
+            httpPort: httpPort,
+            authorFollowRepos: authorFollowRepos
+        )
     }
 
     public static func parsePlistData(_ data: Data) -> DaemonPlistConfig? {
@@ -63,8 +79,11 @@ public enum DaemonPlistParser {
 }
 
 public enum DaemonCommand {
-    public static func startArguments(allowedRepos: [String], httpPort: Int?) -> [String] {
+    public static func startArguments(allowedRepos: [String], httpPort: Int?, authorFollowRepos: [String] = []) -> [String] {
         var args = ["start", "--allow-repo", allowedRepos.joined(separator: ",")]
+        if !authorFollowRepos.isEmpty {
+            args.append(contentsOf: ["--author-follow-repo", authorFollowRepos.joined(separator: ",")])
+        }
         if let httpPort {
             args.append(contentsOf: ["--http-port", String(httpPort)])
         }

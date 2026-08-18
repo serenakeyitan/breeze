@@ -325,9 +325,13 @@ final class DaemonController: ObservableObject {
 
     func pauseDaemon() async throws {
         if let snapshot = Self.readPlist() {
-            saveState(allowedRepos: snapshot.allowedRepos, httpPort: snapshot.httpPort)
+            saveState(
+                allowedRepos: snapshot.allowedRepos,
+                httpPort: snapshot.httpPort,
+                authorFollowRepos: snapshot.authorFollowRepos
+            )
         } else if let repos = try? await fetchAllowedRepos(), !repos.isEmpty {
-            saveState(allowedRepos: repos, httpPort: nil)
+            saveState(allowedRepos: repos, httpPort: nil, authorFollowRepos: [])
         }
         try await runCLI(DaemonCommand.stopArguments)
     }
@@ -335,7 +339,11 @@ final class DaemonController: ObservableObject {
     func resumeDaemon() async throws {
         let state: PersistedState
         if let recovered = Self.readPlist(), !recovered.allowedRepos.isEmpty {
-            saveState(allowedRepos: recovered.allowedRepos, httpPort: recovered.httpPort)
+            saveState(
+                allowedRepos: recovered.allowedRepos,
+                httpPort: recovered.httpPort,
+                authorFollowRepos: recovered.authorFollowRepos
+            )
             guard let reloaded = loadState() else {
                 throw NSError(domain: "DaemonController", code: -1, userInfo: [
                     NSLocalizedDescriptionKey: "Recovered repo scope from launchd plist but failed to persist it."
@@ -349,7 +357,11 @@ final class DaemonController: ObservableObject {
                 NSLocalizedDescriptionKey: "No saved repo scope. Run `breeze-runner start --allow-repo owner/repo` once."
             ])
         }
-        try await runCLI(DaemonCommand.startArguments(allowedRepos: state.allowedRepos, httpPort: state.httpPort))
+        try await runCLI(DaemonCommand.startArguments(
+            allowedRepos: state.allowedRepos,
+            httpPort: state.httpPort,
+            authorFollowRepos: state.authorFollowRepos ?? []
+        ))
         let healthy = await waitForDaemonHealth(timeoutSec: 20)
         if !healthy {
             throw NSError(domain: "DaemonController", code: -3, userInfo: [
@@ -392,12 +404,18 @@ final class DaemonController: ObservableObject {
     private struct PersistedState: Codable {
         let allowedRepos: [String]
         let httpPort: Int?
+        let authorFollowRepos: [String]?
         let savedAt: Date
     }
 
-    private func saveState(allowedRepos: [String], httpPort: Int?) {
+    private func saveState(allowedRepos: [String], httpPort: Int?, authorFollowRepos: [String] = []) {
         try? FileManager.default.createDirectory(at: stateFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let payload = PersistedState(allowedRepos: allowedRepos, httpPort: httpPort, savedAt: Date())
+        let payload = PersistedState(
+            allowedRepos: allowedRepos,
+            httpPort: httpPort,
+            authorFollowRepos: authorFollowRepos,
+            savedAt: Date()
+        )
         if let data = try? JSONEncoder().encode(payload) {
             try? data.write(to: stateFile, options: .atomic)
         }

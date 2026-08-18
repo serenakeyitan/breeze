@@ -5,8 +5,8 @@ use crate::classify::TaskKind;
 use crate::config::RepoFilter;
 use crate::gh_executor::{GhBucket, GhCommandSpec, GhExecutor, is_rate_limited};
 use crate::task::{
-    TaskCandidate, build_assigned_candidate, build_notification_candidate,
-    build_review_request_candidate,
+    TaskCandidate, build_assigned_candidate, build_author_pr_candidate,
+    build_notification_candidate, build_review_request_candidate,
 };
 use crate::util::{
     AppResult, ensure_dir, is_recent_github_timestamp, parse_tsv_line, shell_quote, write_lines,
@@ -24,6 +24,7 @@ enum SearchScope {
 pub struct GhClient {
     host: String,
     repo_filter: RepoFilter,
+    author_follow: RepoFilter,
     executor: GhExecutor,
 }
 
@@ -47,8 +48,14 @@ impl GhClient {
         Self {
             host,
             repo_filter,
+            author_follow: RepoFilter::default(),
             executor,
         }
+    }
+
+    pub fn with_author_follow(mut self, author_follow: RepoFilter) -> Self {
+        self.author_follow = author_follow;
+        self
     }
 
     pub fn executor(&self) -> &GhExecutor {
@@ -189,6 +196,54 @@ impl GhClient {
         Ok(deduplicate(tasks))
     }
 
+    pub fn author_follow_prs(&self, limit: usize) -> AppResult<Vec<TaskCandidate>> {
+        if self.author_follow.is_empty() {
+            return Ok(Vec::new());
+        }
+        let jq = ".[] | [((.number | tostring) // \"0\"), (.title // \"\"), (.url // \"\"), (.updatedAt // \"\")] | @tsv";
+        let mut tasks = Vec::new();
+        for repo in self.author_follow.repos() {
+            let stdout = self.run_checked(
+                "list author-follow pull requests",
+                vec![
+                    "pr".to_string(),
+                    "list".to_string(),
+                    "--repo".to_string(),
+                    repo.clone(),
+                    "--author".to_string(),
+                    "@me".to_string(),
+                    "--state".to_string(),
+                    "open".to_string(),
+                    "--limit".to_string(),
+                    limit.to_string(),
+                    "--json".to_string(),
+                    "number,title,url,updatedAt".to_string(),
+                    "--jq".to_string(),
+                    jq.to_string(),
+                ],
+                GhBucket::Core,
+            )?;
+            for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+                let fields = parse_tsv_line(line);
+                if fields.len() < 4 {
+                    continue;
+                }
+                let number = fields[0].parse::<u64>().unwrap_or_default();
+                if number == 0 {
+                    continue;
+                }
+                tasks.push(build_author_pr_candidate(
+                    repo.clone(),
+                    number,
+                    fields[1].clone(),
+                    fields[2].clone(),
+                    fields[3].clone(),
+                ));
+            }
+        }
+        Ok(deduplicate(tasks))
+    }
+
     pub fn latest_comment_activity(&self, api_url: &str) -> AppResult<Option<ThreadActivity>> {
         if api_url.trim().is_empty() {
             return Ok(None);
@@ -284,9 +339,16 @@ impl GhClient {
             }
         }
 
+        match self.author_follow_prs(limit) {
+            Ok(tasks) => poll.tasks.extend(tasks),
+            Err(error) => poll
+                .warnings
+                .push(format!("author-follow: {}", error.to_string().trim())),
+        }
+
         poll.tasks.retain(|task| {
             self.repo_filter.matches_repo(&task.repo)
-                && is_recent_candidate(task, now_epoch, lookback_secs)
+                && should_keep_candidate(task, now_epoch, lookback_secs)
         });
         poll.tasks.sort_by(|left, right| {
             right
@@ -578,6 +640,12 @@ fn is_recent_candidate(task: &TaskCandidate, now_epoch: u64, lookback_secs: u64)
     is_recent_github_timestamp(&task.updated_at, now_epoch, lookback_secs)
 }
 
+fn should_keep_candidate(task: &TaskCandidate, now_epoch: u64, lookback_secs: u64) -> bool {
+    // GitHub never sends review_requested to the PR author, so author-follow
+    // must keep open self-PRs even when they are older than the lookback window.
+    task.source == "author-follow" || is_recent_candidate(task, now_epoch, lookback_secs)
+}
+
 fn parse_thread_activity(line: Option<&str>) -> Option<ThreadActivity> {
     let line = line?;
     let fields = parse_tsv_line(line);
@@ -652,6 +720,20 @@ pub fn should_ignore_latest_self_activity(
     is_self_or_bot_actor(login, &activity.login, &activity.user_type)
 }
 
+pub fn should_skip_self_activity_on_schedule(
+    login: &str,
+    last_handled_updated_at: &str,
+    activity: Option<&ThreadActivity>,
+    task_updated_at: &str,
+) -> bool {
+    // First time we see a thread, review it even if the latest actor is the
+    // author. Otherwise self-authored PRs never get a first breeze review.
+    if last_handled_updated_at.trim().is_empty() {
+        return false;
+    }
+    should_ignore_latest_self_activity(login, activity, task_updated_at)
+}
+
 fn is_self_or_bot_actor(login: &str, actor_login: &str, actor_type: &str) -> bool {
     !actor_login.trim().is_empty()
         && (actor_login == login || actor_login.ends_with("[bot]") || actor_type == "Bot")
@@ -708,7 +790,9 @@ mod tests {
     use super::{
         GhClient, SearchScope, ThreadActivity, is_rate_limit_error, pick_newer_activity,
         should_ignore_latest_self_activity, should_ignore_self_authored,
+        should_keep_candidate, should_skip_self_activity_on_schedule,
     };
+    use crate::task::build_author_pr_candidate;
     use crate::classify::TaskKind;
     use crate::config::RepoFilter;
     use crate::gh_executor::GhExecutor;
@@ -784,6 +868,40 @@ mod tests {
             Some(&stale),
             "2026-04-15T05:16:25Z"
         ));
+    }
+
+    #[test]
+    fn first_look_at_a_thread_is_not_skipped_for_self_activity() {
+        let current = ThreadActivity {
+            login: "serenakeyitan".to_string(),
+            user_type: "User".to_string(),
+            updated_at: "2026-08-14T20:08:48Z".to_string(),
+        };
+        assert!(!should_skip_self_activity_on_schedule(
+            "serenakeyitan",
+            "",
+            Some(&current),
+            "2026-08-14T20:08:48Z"
+        ));
+        assert!(should_skip_self_activity_on_schedule(
+            "serenakeyitan",
+            "2026-08-14T20:08:48Z",
+            Some(&current),
+            "2026-08-14T20:08:48Z"
+        ));
+    }
+
+    #[test]
+    fn author_follow_candidates_survive_old_lookback() {
+        let candidate = build_author_pr_candidate(
+            "serenakeyitan/tokentorrent".to_string(),
+            38,
+            "Old own PR".to_string(),
+            "https://github.com/serenakeyitan/tokentorrent/pull/38".to_string(),
+            "2026-08-12T21:32:53Z".to_string(),
+        );
+        let now = 1_787_045_000;
+        assert!(should_keep_candidate(&candidate, now, 86_400));
     }
 
     #[test]

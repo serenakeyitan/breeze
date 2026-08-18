@@ -274,6 +274,29 @@ pub fn build_review_request_candidate(
     }
 }
 
+pub fn build_author_pr_candidate(
+    repo: String,
+    number: u64,
+    title: String,
+    web_url: String,
+    updated_at: String,
+) -> TaskCandidate {
+    TaskCandidate {
+        source: "author-follow".to_string(),
+        repo: repo.clone(),
+        workspace_repo: repo.clone(),
+        thread_key: format!("/repos/{repo}/pulls/{number}"),
+        kind: TaskKind::ReviewRequest,
+        reason: "author".to_string(),
+        title,
+        web_url,
+        api_url: format!("https://api.github.com/repos/{repo}/pulls/{number}"),
+        latest_comment_api_url: String::new(),
+        updated_at,
+        priority: priority_for(&TaskKind::ReviewRequest, "author"),
+    }
+}
+
 pub fn build_assigned_candidate(
     repo: String,
     number: u64,
@@ -362,7 +385,7 @@ fn extract_issue_comment_id(value: &str) -> Option<u64> {
 mod tests {
     use super::{
         TaskCandidate, TaskKind, ThreadRecord, build_notification_candidate,
-        build_review_request_candidate, should_process_reason,
+        build_author_pr_candidate, build_review_request_candidate, should_process_reason,
     };
     use std::collections::HashMap;
 
@@ -396,6 +419,23 @@ mod tests {
         );
 
         assert_eq!(candidate.pr_number(), Some(45));
+    }
+
+    #[test]
+    fn author_follow_candidate_is_a_review_and_skips_lookback_source() {
+        let candidate = build_author_pr_candidate(
+            "serenakeyitan/tokentorrent".to_string(),
+            75,
+            "Own PR".to_string(),
+            "https://github.com/serenakeyitan/tokentorrent/pull/75".to_string(),
+            "2026-08-14T20:08:48Z".to_string(),
+        );
+
+        assert_eq!(candidate.source, "author-follow");
+        assert_eq!(candidate.kind, TaskKind::ReviewRequest);
+        assert_eq!(candidate.reason, "author");
+        assert_eq!(candidate.pr_number(), Some(75));
+        assert_eq!(candidate.priority, 100);
     }
 
     #[test]

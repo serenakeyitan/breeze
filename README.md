@@ -63,7 +63,7 @@ breeze uses **GitHub labels** to track notification status. The source of truth 
 
 ## Why not a loop, Greptile, or Copilot
 
-The review job is a loop: poll GitHub, see `review_requested`, run an agent, comment as you. A 40-line script can do that once. breeze is that loop plus the shell you need if it is going to stay correct.
+The review job is a loop: poll GitHub, see `review_requested`, run an agent, comment as you. A 40-line script can do that once. breeze is that loop plus the shell you need if it is going to stay correct. GitHub will not request a review from the PR author, so on repos you pass to `--author-follow-repo` breeze also lists your own open PRs and reviews those.
 
 | | Your own loop | Greptile / Copilot | breeze |
 |---|---|---|---|
