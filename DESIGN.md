@@ -141,7 +141,7 @@ User types /breeze
 **4. Action Executor**
 - Whitelist of safe actions: comment, review, approve, request changes, close, react, label
 - No destructive actions without explicit confirmation (merge, delete branch, force push)
-- Posts with footer: `sent via breeze on behalf of @username`
+- Posts with footer linking https://github.com/serenakeyitan/breeze so every comment/review is marked as from breeze
 
 ### Config (`~/.breeze/config.yaml`)
 

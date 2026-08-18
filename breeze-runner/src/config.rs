@@ -221,8 +221,7 @@ impl Config {
         let mut claude_model = env::var("BREEZE_CLAUDE_MODEL").ok();
         let mut grok_model = env::var("BREEZE_GROK_MODEL").ok();
         let mut disclosure_text = env::var("BREEZE_DISCLOSURE").unwrap_or_else(|_| {
-            "Agent note: this reply was prepared and posted by breeze running locally for the active account."
-                .to_string()
+            Self::default_disclosure_text()
         });
         let mut dry_run = parse_bool_env("BREEZE_DRY_RUN").unwrap_or(false);
         let mut http_port = parse_u16_env("BREEZE_HTTP_PORT").unwrap_or(7878);
@@ -361,14 +360,16 @@ impl Config {
             codex_model: None,
             claude_model: None,
             grok_model: None,
-            disclosure_text:
-                "Agent note: this reply was prepared and posted by breeze running locally for the active account."
-                    .to_string(),
+            disclosure_text: Self::default_disclosure_text(),
             dry_run: false,
             http_port: 7878,
             http_disabled: false,
             set_runtime: false,
         }
+    }
+
+    pub fn default_disclosure_text() -> String {
+        "This comment is from [breeze](https://github.com/serenakeyitan/breeze).".to_string()
     }
 
     pub fn usage() -> &'static str {

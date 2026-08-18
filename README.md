@@ -147,7 +147,7 @@ Edit `~/.breeze/config.yaml`:
 repos:
   - owner/repo             # explicit only — never `all`
 poll_interval: 600         # 10 minutes
-footer: true               # append "sent via breeze" to comments
+footer: true               # append "This comment is from breeze" + repo link
 ```
 
 Prefer `/breeze-onboard` over hand-editing this file. The daemon also needs `--allow-repo owner/repo` when it starts; onboard writes both.

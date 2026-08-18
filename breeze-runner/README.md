@@ -48,7 +48,7 @@ cargo run --manifest-path breeze-runner/Cargo.toml -- stop
 
 ## Notes
 
-- Public agent replies are instructed to include a disclosure sentence.
+- Public agent replies must end with a footer linking https://github.com/serenakeyitan/breeze.
 - Brokered `gh` commands are serialized and mutating operations are spaced out to reduce rate-limit pressure.
 - `run-once` is the safest way to validate the whole loop before `start`.
 - Workspaces are kept temporarily for inspection and are cleaned by `cleanup`.

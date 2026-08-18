@@ -122,7 +122,7 @@ for arg in "$@"; do
   fi
   prev="$arg"
 done
-gh issue comment owner/repo#1 --body "Agent note: this reply was prepared and posted by breeze running locally for the active account."
+gh issue comment owner/repo#1 --body "This comment is from [breeze](https://github.com/serenakeyitan/breeze)."
 printf 'BREEZE_RESULT: status=handled summary=fake codex handled thread\n' > "$out"
 "#,
     );
@@ -276,7 +276,7 @@ for arg in "$@"; do
   fi
   prev="$arg"
 done
-gh issue comment owner/repo#1 --body "Agent note: this reply was prepared and posted by breeze running locally for the active account."
+gh issue comment owner/repo#1 --body "This comment is from [breeze](https://github.com/serenakeyitan/breeze)."
 printf 'BREEZE_RESULT: status=handled summary=fake codex handled thread\n' > "$out"
 "#,
     );

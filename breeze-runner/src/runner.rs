@@ -255,7 +255,10 @@ Apply the label via `gh`, for example:
   gh pr edit   <number> --repo <owner>/<repo> --add-label \"breeze:<status>\"
 Remove any previous `breeze:*` label when the status changes so only one `breeze:*` label remains on the item. Set `breeze:wip` as soon as you start real work, and set `breeze:done` or `breeze:human` before you stop.
 
-If you post a public GitHub reply, review, or comment, include this exact disclosure sentence once: {disclosure}
+If you post a public GitHub reply, review, review comment, issue comment, or PR comment, end it with this exact footer once (after the body, never omit it):
+
+---
+{disclosure}
 
 When you are done, finish with exactly one line in this format:
 BREEZE_RESULT: status=<handled|skipped|failed> summary=<one-line summary>",
