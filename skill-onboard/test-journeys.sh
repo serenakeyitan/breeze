@@ -32,4 +32,24 @@ pass "runtime grok saved"
 
 "$APPLY" --allow-repo tornado-doc/tdoc --runtime nope --no-start && fail "accepted bad runtime" || pass "reject bad runtime"
 
+# Author-follow is optional and off by default
+! grep -q 'author_follow_repos:' "$BREEZE_DIR/config.yaml" || fail "author-follow on by default"
+pass "author-follow omitted stays off"
+
+"$APPLY" --allow-repo tornado-doc/tdoc,serenakeyitan/tokentorrent --author-follow-repo serenakeyitan/tokentorrent --no-start --no-tray
+grep -q 'serenakeyitan/tokentorrent' "$BREEZE_DIR/config.yaml" || fail "follow repo missing"
+grep -A1 'author_follow_repos:' "$BREEZE_DIR/config.yaml" | grep -q 'serenakeyitan/tokentorrent' || fail "follow list missing"
+pass "author-follow explicit list"
+
+"$APPLY" --allow-repo tornado-doc/tdoc,serenakeyitan/tokentorrent --no-start --no-tray
+grep -A1 'author_follow_repos:' "$BREEZE_DIR/config.yaml" | grep -q 'serenakeyitan/tokentorrent' || fail "follow not preserved"
+pass "omitting author-follow preserves the switch"
+
+"$APPLY" --allow-repo tornado-doc/tdoc,serenakeyitan/tokentorrent --no-author-follow --no-start --no-tray
+! grep -q 'author_follow_repos:' "$BREEZE_DIR/config.yaml" || fail "follow not cleared"
+pass "J16 --no-author-follow clears the switch"
+
+"$APPLY" --allow-repo tornado-doc/tdoc --author-follow-repo serenakeyitan/tokentorrent --no-start && fail "accepted follow outside allowlist" || pass "follow must be on the allowlist"
+"$APPLY" --allow-repo tornado-doc/tdoc --author-follow-repo all --no-start && fail "accepted follow all" || pass "reject author-follow all"
+
 echo ALL JOURNEY MECHANICS PASSED

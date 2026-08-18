@@ -4,7 +4,8 @@ Source of truth for the flow: `skill-onboard/SKILL.md`, `bin/breeze-onboard-prob
 `bin/breeze-onboard-apply`, `setup`.
 
 Hard rules: never `repos: all`; never start without `owner/repo`; tray optional
-and off by default; poll is 10 minutes and is not asked.
+and off by default; author-follow optional and off by default (same picker
+as repos); poll is 10 minutes and is not asked.
 
 Simplest UX: fewest questions, no dead ends, chat answers count, skip what
 is already decided.
@@ -14,7 +15,8 @@ is already decided.
 ### J1 — Chat already decided
 User: first clone, `gh` ok, cargo ok, macOS. Says “只要 tornado-doc/tdoc，不要 tray，启动 daemon”.
 Expected questions: **0**.
-Apply: `--allow-repo tornado-doc/tdoc --start` (no `--tray`).
+Apply: `--allow-repo tornado-doc/tdoc --no-author-follow --start` (no `--tray`).
+Or omit author-follow flags if they never mentioned it (apply keeps off).
 
 ### J2 — First-time, says nothing extra
 User: first clone, `gh` ok, cargo ok, Swift ok, macOS. Only “set up breeze”.
@@ -61,6 +63,27 @@ Expected: tell them to clone `https://github.com/serenakeyitan/breeze.git`. Stop
 ### J12 — Config only, do not start
 User: gives repos, says don’t start now.
 Expected: write config, no `start`, no tray. Report how to start later.
+
+### J13 — First-time, no mention of own PRs
+User: first clone, picks allowlist, says nothing about author-follow.
+Expected: author-follow stays **off**. Do not pass `--author-follow-repo`.
+May ask once with **Off** recommended.
+
+### J14 — Wants own PRs on one allowlisted repo
+User: allowlist is `tornado-doc/tdoc,serenakeyitan/tokentorrent`. Says
+“tokentorrent 也跟我自己开的 PR”.
+Expected: `--author-follow-repo serenakeyitan/tokentorrent`. Do not turn
+it on for tdoc.
+
+### J15 — Returning, author-follow already set
+User: live author-follow is `serenakeyitan/tokentorrent`, they did not
+ask to change it.
+Expected: do not re-ask. Do not turn it off.
+
+### J16 — Turn author-follow off
+User: “不要再跟我自己的 PR”.
+Expected: `--no-author-follow` or `breeze-runner author-follow off`.
+Restart if the daemon is running. Allowlist unchanged.
 
 ## Rubric (each journey)
 

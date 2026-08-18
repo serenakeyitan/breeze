@@ -96,6 +96,11 @@ if [ -L "$SKILL_DIR/breeze-runtime" ] || [ -d "$SKILL_DIR/breeze-runtime" ]; the
 fi
 ln -s "$SCRIPT_DIR/skill-runtime" "$SKILL_DIR/breeze-runtime"
 echo "  Symlinked $SKILL_DIR/breeze-runtime -> $SCRIPT_DIR/skill-runtime"
+if [ -L "$SKILL_DIR/breeze-author-follow" ] || [ -d "$SKILL_DIR/breeze-author-follow" ]; then
+  rm -rf "$SKILL_DIR/breeze-author-follow"
+fi
+ln -s "$SCRIPT_DIR/skill-author-follow" "$SKILL_DIR/breeze-author-follow"
+echo "  Symlinked $SKILL_DIR/breeze-author-follow -> $SCRIPT_DIR/skill-author-follow"
 echo ""
 
 # 5. Daemon + tray are not started here. /breeze-onboard asks for an

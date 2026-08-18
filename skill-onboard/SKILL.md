@@ -15,10 +15,10 @@ allowed-tools:
 # breeze-onboard
 
 Ask the user. Do not run a linear wizard. Probe first. Chat answers count
-for every decision (repos, tray, start), not only tray.
+for every decision (repos, author-follow, tray, start), not only tray.
 
 Never write `repos: all`. Never start without `owner/repo`. Never install
-tray unless they opt in.
+tray unless they opt in. Author-follow is optional and off by default.
 
 ## 1. Probe
 
@@ -68,6 +68,31 @@ question. “Add X” while a list exists means **union** with current
 
 If they already named valid `owner/repo` in chat, do not open the picker.
 
+### Author-follow (optional)
+
+Same shape as the repo picker, but **off by default**. This is the switch
+that reviews PRs this GitHub account opened. GitHub will not send
+`review_requested` to the author.
+
+Closed if they said off / skip / don’t follow my PRs, or
+`config_author_follow` / `live_author_follow` is already the list they
+want **and** they did not ask to change it.
+
+Still open on first run if they said nothing, or if they said “also
+follow my PRs” / named repos for it.
+
+Ask at most **once**, after the allowlist is known. Options:
+
+- **Off** (recommended default)
+- each current allowlisted `owner/repo` (multi-select)
+- Other (must be an allowlisted `owner/repo`)
+
+Never `all`. Never a repo that is not on the allowlist — add it to
+`repos` first, then to author-follow. “Add X” unions with the current
+author-follow list. “Off” / “none” is `--no-author-follow`.
+
+Do not turn it on just because they added a repo to the allowlist.
+
 ### Tray (optional)
 
 Default: skip. Never `--tray` unless they explicitly want it.
@@ -100,8 +125,8 @@ of grok/codex/claude is actually on PATH.
 
 Closed if they already said start or don’t start.
 
-If the allowlist **changed** and `runner_running` is true: do **not** ask.
-Restart (`--start`) so the live process matches the new list.
+If the allowlist **or author-follow list** changed and `runner_running`
+is true: do **not** ask. Restart (`--start`) so the live process matches.
 
 If `runner_running` is false and they said “set up breeze” / onboard with
 no “don’t start”: treat start as yes (say so in the report).
@@ -118,14 +143,20 @@ Do not ask poll interval (10 minutes).
 
 ```bash
 APPLY="$REPO/bin/breeze-onboard-apply"
-# example after chat “只要 tornado-doc/tdoc，不要 tray，启动”
-bash "$APPLY" --allow-repo tornado-doc/tdoc --runtime grok --start
+# example after chat “只要 tornado-doc/tdoc，不要跟我自己的 PR，不要 tray，启动”
+bash "$APPLY" --allow-repo tornado-doc/tdoc --no-author-follow --runtime grok --start
+# example after chat “tdoc + tokentorrent，tokentorrent 也跟我自己开的 PR”
+bash "$APPLY" --allow-repo tornado-doc/tdoc,serenakeyitan/tokentorrent --author-follow-repo serenakeyitan/tokentorrent --runtime grok --start
 ```
 
 Pass `--runtime grok|codex|claude` when that decision is new or changed.
+Pass `--author-follow-repo owner/repo[,owner/repo2]` only when they opted
+in. Pass `--no-author-follow` when they chose off. If they did not touch
+author-follow, omit both flags so apply keeps the current switch.
 Pass `--tray` / `--open-tray` only on explicit opt-in. Pass `--start` to
 start or restart. If they only want to switch runtime and the allowlist
 is already valid: skip apply, run `"$REPO/breeze-runner/target/release/breeze-runner" runtime <name>`.
+To change only author-follow later: `"$REPO/breeze-runner/target/release/breeze-runner" author-follow owner/repo` or `author-follow off` (or `/breeze-author-follow`).
 If nothing changed and daemon is already correct: skip apply, just report.
 
 Symlink skills if missing:
@@ -137,6 +168,7 @@ ln -sfn "$REPO/skill-watch" "$HOME/.claude/skills/breeze-watch"
 ln -sfn "$REPO/skill-upgrade" "$HOME/.claude/skills/breeze-upgrade"
 ln -sfn "$REPO/skill-onboard" "$HOME/.claude/skills/breeze-onboard"
 ln -sfn "$REPO/skill-runtime" "$HOME/.claude/skills/breeze-runtime"
+ln -sfn "$REPO/skill-author-follow" "$HOME/.claude/skills/breeze-author-follow"
 ```
 
 ## 4. Report
@@ -145,11 +177,13 @@ Re-run probe. Tell them:
 
 - GitHub login breeze will post as
 - allowlist
+- author-follow (off, or the owner/repo list)
 - review runtime (`agent:` from `breeze-runner status`, or `breeze-runner runtime`)
 - daemon running or not (from `breeze-runner status` `allowed repos`, not
   only the yaml)
 - tray only if Darwin: installed, skipped, or failed (failure is not fatal)
 - if daemon is down: `breeze-runner start --allow-repo <the list>`
 
-Remind once: PRs are reviewed only on `review_requested` to this account
-(CODEOWNERS or a manual review request).
+Remind once: collaborator PRs are reviewed on `review_requested` to this
+account (CODEOWNERS or a manual request). Your own PRs are reviewed only
+on author-follow repos.

@@ -146,11 +146,13 @@ Edit `~/.breeze/config.yaml`:
 ```yaml
 repos:
   - owner/repo             # explicit only — never `all`
+author_follow_repos:       # optional; omit or leave empty to stay off
+  - owner/repo             # also review PRs you opened (same picker as repos)
 poll_interval: 600         # 10 minutes
 footer: true               # append "This comment is from breeze" + repo link
 ```
 
-Prefer `/breeze-onboard` over hand-editing this file. The daemon also needs `--allow-repo owner/repo` when it starts; onboard writes both.
+Prefer `/breeze-onboard` over hand-editing this file. The daemon also needs `--allow-repo owner/repo` when it starts; onboard writes both. Author-follow is a separate optional switch: `/breeze-author-follow`, or `breeze-runner author-follow owner/repo` / `author-follow off`.
 
 ## How it works
 

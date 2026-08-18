@@ -25,23 +25,30 @@ tray_supported=false
 runner_binary=false
 [ -x "$REPO/breeze-runner/target/release/breeze-runner" ] && runner_binary=true
 config="$BREEZE_DIR/config.yaml"
+yaml_list() {
+  local key="$1"
+  awk -v key="$key" '
+    $1==key":" {inlist=1; next}
+    inlist && $1 ~ /^-/ {
+      gsub(/^[[:space:]]*-[[:space:]]*/, "")
+      print
+      next
+    }
+    inlist && $0 !~ /^[[:space:]]/ {inlist=0}
+  ' "$config" | paste -sd, -
+}
+
 config_exists=false
 config_is_all=false
 config_repos=""
+config_author_follow=""
 if [ -f "$config" ]; then
   config_exists=true
   if grep -Eq '^[[:space:]]*-[[:space:]]*all[[:space:]]*$' "$config"; then
     config_is_all=true
   fi
-  config_repos="$(awk '
-    $1=="repos:" {inrepos=1; next}
-    inrepos && $1 ~ /^-/ {
-      gsub(/^[[:space:]]*-[[:space:]]*/, "")
-      print
-      next
-    }
-    inrepos && $0 !~ /^[[:space:]]/ {inrepos=0}
-  ' "$config" | paste -sd, -)"
+  config_repos="$(yaml_list repos)"
+  config_author_follow="$(yaml_list author_follow_repos)"
 fi
 
 runner_running=false
@@ -54,8 +61,12 @@ fi
 runtime_saved=""
 [ -f "$BREEZE_DIR/runtime" ] && runtime_saved="$(tr -d '[:space:]' < "$BREEZE_DIR/runtime")"
 runtime_live=""
+live_author_follow=""
 LAST_START="${BREEZE_HOME:-$HOME/.breeze/runner}/last-start.env"
-[ -f "$LAST_START" ] && runtime_live="$(awk -F= '$1=="runners"{print $2}' "$LAST_START" | tr -d '[:space:]')"
+if [ -f "$LAST_START" ]; then
+  runtime_live="$(awk -F= '$1=="runners"{print $2}' "$LAST_START" | tr -d '[:space:]')"
+  live_author_follow="$(awk -F= '$1=="author_follow_repo"{print $2}' "$LAST_START" | tr -d '[:space:]')"
+fi
 grok_ok=false
 command -v grok >/dev/null && grok_ok=true
 codex_ok=false
@@ -85,6 +96,8 @@ printf '"runner_binary":%s,' "$runner_binary"
 printf '"config_exists":%s,' "$config_exists"
 printf '"config_is_all":%s,' "$config_is_all"
 printf '"config_repos":%s,' "$(printf '%s' "$config_repos" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"config_author_follow":%s,' "$(printf '%s' "$config_author_follow" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
+printf '"live_author_follow":%s,' "$(printf '%s' "$live_author_follow" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
 printf '"runner_running":%s,' "$runner_running"
 printf '"runtime_saved":%s,' "$(printf '%s' "$runtime_saved" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
 printf '"runtime_live":%s,' "$(printf '%s' "$runtime_live" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"

@@ -15,6 +15,7 @@ pub enum CommandKind {
     Stop,
     Poll,
     Runtime,
+    AuthorFollow,
     Help,
 }
 
@@ -142,6 +143,8 @@ pub struct Config {
     pub http_port: u16,
     pub http_disabled: bool,
     pub set_runtime: bool,
+    pub set_author_follow: bool,
+    pub author_follow_explicit: bool,
 }
 
 impl Config {
@@ -178,6 +181,18 @@ impl Config {
                 }
                 (CommandKind::Runtime, rest)
             }
+            Some("author-follow") => {
+                let mut rest: Vec<String> = iter.collect();
+                if let Some(first) = rest.first().cloned() {
+                    if matches!(first.as_str(), "off" | "none" | "clear") {
+                        rest.remove(0);
+                        rest.insert(0, "--no-author-follow".to_string());
+                    } else if !first.starts_with('-') {
+                        rest.insert(0, "--author-follow-repo".to_string());
+                    }
+                }
+                (CommandKind::AuthorFollow, rest)
+            }
             Some("help") | Some("--help") | Some("-h") => (CommandKind::Help, iter.collect()),
             Some(other) if other.starts_with('-') => {
                 let mut all = vec![other.to_string()];
@@ -202,6 +217,7 @@ impl Config {
                 .unwrap_or_default()
                 .as_str(),
         )?;
+        let mut author_follow_explicit = env::var("BREEZE_AUTHOR_FOLLOW_REPOS").is_ok();
         let mut runner_explicit = env::var("BREEZE_RUNNERS").is_ok();
         let mut runners = parse_runners(
             env::var("BREEZE_RUNNERS")
@@ -253,6 +269,11 @@ impl Config {
                 }
                 "--author-follow-repo" | "--author-follow-repos" => {
                     author_follow_filter.merge(RepoFilter::parse_csv(&next_value(&mut index)?)?);
+                    author_follow_explicit = true;
+                }
+                "--no-author-follow" => {
+                    author_follow_filter = RepoFilter::default();
+                    author_follow_explicit = true;
                 }
                 "--runner" | "--runners" => {
                     runners = parse_runners(&next_value(&mut index)?)?;
@@ -348,6 +369,9 @@ impl Config {
             http_port,
             http_disabled,
             set_runtime: matches!(command, CommandKind::Runtime) && runner_explicit,
+            set_author_follow: matches!(command, CommandKind::AuthorFollow)
+                && author_follow_explicit,
+            author_follow_explicit,
         })
     }
 
@@ -376,6 +400,8 @@ impl Config {
             http_port: 7878,
             http_disabled: false,
             set_runtime: false,
+            set_author_follow: false,
+            author_follow_explicit: false,
         }
     }
 
@@ -399,6 +425,8 @@ COMMANDS
   stop       Stop the background service for the active gh identity
   poll       Fetch notifications, enrich labels, and write ~/.breeze/inbox.json
   runtime    Show or switch the review agent (grok, codex, claude)
+  author-follow
+             Show or switch which allowlisted repos also review your own PRs
   help       Show this help
 
 FLAGS
@@ -406,8 +434,9 @@ FLAGS
   --host <host>                  GitHub host to use (default: github.com)
   --profile <name>               Lock partition for this automation profile
   --allow-repo <patterns>        Restrict processing to owner/repo or owner/* patterns
-  --author-follow-repo <repos>   Also review open PRs authored by this account
-                                 (GitHub will not review-request the author)
+  --author-follow-repo <repos>   Optional: also review your own open PRs here
+                                 (same owner/repo list as --allow-repo; default off)
+  --no-author-follow             Turn author-follow off
   --runner <list>                Comma-separated runner order, e.g. grok,codex,claude
   --max-parallel <n>             Max concurrent tasks (default: 20)
   --poll-interval-secs <n>       Dispatch poll cadence in seconds (default: 600)
@@ -605,6 +634,43 @@ mod tests {
             config.author_follow_filter.repos(),
             &["serenakeyitan/tokentorrent".to_string()]
         );
+        assert!(config.author_follow_explicit);
+    }
+
+    #[test]
+    fn author_follow_command_is_an_optional_switch() {
+        let show = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "author-follow".to_string(),
+        ])
+        .expect("author-follow show should parse");
+        assert_eq!(show.command, CommandKind::AuthorFollow);
+        assert!(!show.set_author_follow);
+        assert!(!show.author_follow_explicit);
+
+        let set = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "author-follow".to_string(),
+            "serenakeyitan/tokentorrent".to_string(),
+        ])
+        .expect("author-follow set should parse");
+        assert_eq!(set.command, CommandKind::AuthorFollow);
+        assert!(set.set_author_follow);
+        assert_eq!(
+            set.author_follow_filter.repos(),
+            &["serenakeyitan/tokentorrent".to_string()]
+        );
+
+        let off = Config::parse(vec![
+            "breeze-runner".to_string(),
+            "author-follow".to_string(),
+            "off".to_string(),
+        ])
+        .expect("author-follow off should parse");
+        assert_eq!(off.command, CommandKind::AuthorFollow);
+        assert!(off.set_author_follow);
+        assert!(off.author_follow_filter.is_empty());
+        assert!(off.author_follow_explicit);
     }
 
     #[test]

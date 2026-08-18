@@ -333,6 +333,97 @@ impl Service {
         self.config.home.join("last-start.env")
     }
 
+    fn restore_author_follow_if_unset(&mut self) -> AppResult<()> {
+        if self.config.author_follow_explicit || !self.config.author_follow_filter.is_empty() {
+            return Ok(());
+        }
+        let Some(follow) = self
+            .load_last_start()?
+            .get("author_follow_repo")
+            .cloned()
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(());
+        };
+        self.config.author_follow_filter = RepoFilter::parse_csv(&follow)?;
+        Ok(())
+    }
+
+    pub fn author_follow_command(&mut self) -> AppResult<()> {
+        let last = self.load_last_start()?;
+        let saved = last
+            .get("author_follow_repo")
+            .cloned()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "off".to_string());
+        println!("breeze-runner author-follow");
+        println!("saved: {saved}");
+        if !self.config.set_author_follow {
+            let live = self
+                .store
+                .read_runtime_status()
+                .ok()
+                .and_then(|status| status.get("author_follow_repos").cloned())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
+            println!("live: {live}");
+            println!("set with: breeze-runner author-follow owner/repo[,owner/repo2]");
+            println!("off with: breeze-runner author-follow off");
+            return Ok(());
+        }
+
+        let allow = last
+            .get("allow_repo")
+            .cloned()
+            .filter(|value| !value.is_empty() && value != "all")
+            .or_else(|| {
+                self.store
+                    .read_runtime_status()
+                    .ok()
+                    .and_then(|status| status.get("allowed_repos").cloned())
+                    .filter(|value| !value.is_empty() && value != "all")
+            });
+        let Some(allow) = allow else {
+            return Err(app_error(
+                "cannot change author-follow without an explicit allow-repo; start with --allow-repo owner/repo",
+            ));
+        };
+        let allow_filter = RepoFilter::parse_csv(&allow)?;
+        for repo in self.config.author_follow_filter.repos() {
+            if !allow_filter.matches_repo(repo) {
+                return Err(app_error(format!(
+                    "author-follow repo `{repo}` is not on the allowlist ({allow})"
+                )));
+            }
+        }
+
+        self.config.repo_filter = allow_filter;
+        if let Some(port) = last.get("http_port").and_then(|value| value.parse().ok()) {
+            self.config.http_port = port;
+        }
+        if let Some(poll) = last
+            .get("poll_interval_secs")
+            .and_then(|value| value.parse().ok())
+        {
+            self.config.poll_interval_secs = poll;
+        }
+
+        let selected = if self.config.author_follow_filter.is_empty() {
+            "off".to_string()
+        } else {
+            self.config.author_follow_filter.display_patterns()
+        };
+        println!("SAVED: {selected}");
+
+        let lock = find_lock(&self.store.locks_dir, &self.identity, &self.config.profile)?;
+        if !lock.as_ref().is_some_and(lock_is_live) {
+            self.persist_last_start()?;
+            println!("daemon not running; next start will use author-follow {selected}");
+            return Ok(());
+        }
+        self.start_background()
+    }
+
     fn persist_last_start(&self) -> AppResult<()> {
         let allow = if self.config.repo_filter.is_empty() {
             String::new()
@@ -379,6 +470,7 @@ impl Service {
     pub fn start_background(&mut self) -> AppResult<()> {
         ensure_dir(&self.store.logs_dir)?;
         write_preferred_runtime(&self.config.runners_csv())?;
+        self.restore_author_follow_if_unset()?;
         self.persist_last_start()?;
         self.prime_runtime_for_start()?;
         let log_path = self

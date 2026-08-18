@@ -8,6 +8,7 @@ REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ALLOW_REPO=""
 AUTHOR_FOLLOW=""
+AUTHOR_FOLLOW_SET=0
 RUNTIME=""
 TRAY=0
 OPEN_TRAY=0
@@ -16,7 +17,14 @@ START=0
 while [ "${1:-}" != "" ]; do
   case "$1" in
     --allow-repo) ALLOW_REPO="$2"; shift 2 ;;
-    --author-follow-repo) AUTHOR_FOLLOW="$2"; shift 2 ;;
+    --author-follow-repo)
+      AUTHOR_FOLLOW="$2"
+      AUTHOR_FOLLOW_SET=1
+      shift 2 ;;
+    --no-author-follow)
+      AUTHOR_FOLLOW=""
+      AUTHOR_FOLLOW_SET=1
+      shift ;;
     --runtime)    RUNTIME="$2"; shift 2 ;;
     --tray)       TRAY=1; shift ;;
     --no-tray)    TRAY=0; shift ;;
@@ -24,7 +32,8 @@ while [ "${1:-}" != "" ]; do
     --start)      START=1; shift ;;
     --no-start)   START=0; shift ;;
     --help|-h)
-      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--author-follow-repo owner/repo] [--runtime grok|codex|claude] [--start] [--tray] [--open-tray]"
+      echo "usage: breeze-onboard-apply --allow-repo owner/repo[,owner/repo2] [--author-follow-repo owner/repo | --no-author-follow] [--runtime grok|codex|claude] [--start] [--tray] [--open-tray]"
+      echo "author-follow is optional and off by default; same owner/repo picker as --allow-repo"
       echo "tray flags are optional; omit them to skip the menu bar app"
       exit 0 ;;
     *)
@@ -60,13 +69,37 @@ if [ "${#CLEAN[@]}" -eq 0 ]; then
   exit 2
 fi
 
-if [ -z "$AUTHOR_FOLLOW" ] && [ -f "$BREEZE_DIR/runner/last-start.env" ]; then
-  AUTHOR_FOLLOW="$(awk -F= '/^author_follow_repo=/{print $2}' "$BREEZE_DIR/runner/last-start.env" | tail -n 1)"
-fi
+yaml_list() {
+  local file="$1"
+  local key="$2"
+  [ -f "$file" ] || return 0
+  awk -v key="$key" '
+    $1==key":" {inlist=1; next}
+    inlist && $1 ~ /^-/ {
+      gsub(/^[[:space:]]*-[[:space:]]*/, "")
+      print
+      next
+    }
+    inlist && $0 !~ /^[[:space:]]/ {inlist=0}
+  ' "$file" | paste -sd, -
+}
 
-FOLLOW_CLEAN=()
-if [ -n "$AUTHOR_FOLLOW" ]; then
-  IFS=',' read -r -a FOLLOW_REPOS <<< "$AUTHOR_FOLLOW"
+existing_in_allowlist() {
+  local repo="$1"
+  local allowed
+  for allowed in "${CLEAN[@]}"; do
+    [ "$allowed" = "$repo" ] && return 0
+  done
+  return 1
+}
+
+parse_follow_csv() {
+  local raw_list="$1"
+  local require_in_allowlist="$2"
+  FOLLOW_CLEAN=()
+  [ -z "$raw_list" ] && return 0
+  local raw repo
+  IFS=',' read -r -a FOLLOW_REPOS <<< "$raw_list"
   for raw in "${FOLLOW_REPOS[@]}"; do
     repo="$(printf '%s' "$raw" | tr -d '[:space:]')"
     [ -z "$repo" ] && continue
@@ -79,8 +112,34 @@ if [ -n "$AUTHOR_FOLLOW" ]; then
       echo "ERROR: '$repo' is not owner/repo" >&2
       exit 2
     fi
-    FOLLOW_CLEAN+=("$repo")
+    if [ "$require_in_allowlist" = "1" ] && ! existing_in_allowlist "$repo"; then
+      echo "ERROR: author-follow repo '$repo' is not on the allowlist" >&2
+      exit 2
+    fi
+    if existing_in_allowlist "$repo"; then
+      FOLLOW_CLEAN+=("$repo")
+    fi
   done
+}
+
+FOLLOW_CLEAN=()
+if [ "$AUTHOR_FOLLOW_SET" = "1" ]; then
+  parse_follow_csv "$AUTHOR_FOLLOW" 1
+else
+  PRESERVED="$(yaml_list "$BREEZE_DIR/config.yaml" author_follow_repos)"
+  if [ -z "$PRESERVED" ] && [ -f "$BREEZE_DIR/runner/last-start.env" ]; then
+    PRESERVED="$(awk -F= '/^author_follow_repo=/{print $2}' "$BREEZE_DIR/runner/last-start.env" | tail -n 1)"
+  fi
+  parse_follow_csv "$PRESERVED" 0
+fi
+
+LABEL_SCAN="$(yaml_list "$BREEZE_DIR/config.yaml" label_scan_repos)"
+POLL_INTERVAL="600"
+if [ -f "$BREEZE_DIR/config.yaml" ]; then
+  EXISTING_POLL="$(awk -F: '/^poll_interval:/{gsub(/[[:space:]]/, "", $2); print $2}' "$BREEZE_DIR/config.yaml" | tail -n 1)"
+  if printf '%s' "$EXISTING_POLL" | grep -Eq '^[0-9]+$' && [ "$EXISTING_POLL" -gt 0 ]; then
+    POLL_INTERVAL="$EXISTING_POLL"
+  fi
 fi
 
 mkdir -p "$BREEZE_DIR"
@@ -96,7 +155,15 @@ mkdir -p "$BREEZE_DIR"
       echo "  - $repo"
     done
   fi
-  echo "poll_interval: 600"
+  if [ -n "$LABEL_SCAN" ]; then
+    echo "label_scan_repos:"
+    IFS=',' read -r -a LABEL_REPOS <<< "$LABEL_SCAN"
+    for repo in "${LABEL_REPOS[@]}"; do
+      repo="$(printf '%s' "$repo" | tr -d '[:space:]')"
+      [ -n "$repo" ] && echo "  - $repo"
+    done
+  fi
+  echo "poll_interval: $POLL_INTERVAL"
   echo "footer: true"
   echo "auto_mark_read: false"
   echo "priority:"
@@ -107,6 +174,11 @@ mkdir -p "$BREEZE_DIR"
 } > "$BREEZE_DIR/config.yaml"
 echo "WROTE_CONFIG: $BREEZE_DIR/config.yaml"
 echo "REPOS: $(IFS=,; echo "${CLEAN[*]}")"
+if [ "${#FOLLOW_CLEAN[@]}" -gt 0 ]; then
+  echo "AUTHOR_FOLLOW: $(IFS=,; echo "${FOLLOW_CLEAN[*]}")"
+else
+  echo "AUTHOR_FOLLOW: off"
+fi
 
 if [ -n "$RUNTIME" ]; then
   case "$RUNTIME" in
@@ -134,10 +206,21 @@ if [ "$START" = "1" ]; then
   FOLLOW_SCOPE="$(IFS=,; echo "${FOLLOW_CLEAN[*]}")"
   "$RUNNER" stop >/dev/null 2>&1 || true
   START_ARGS=(--allow-repo "$SCOPE")
-  [ -n "$FOLLOW_SCOPE" ] && START_ARGS+=(--author-follow-repo "$FOLLOW_SCOPE")
+  if [ -n "$FOLLOW_SCOPE" ]; then
+    START_ARGS+=(--author-follow-repo "$FOLLOW_SCOPE")
+  else
+    START_ARGS+=(--no-author-follow)
+  fi
   [ -n "$RUNTIME" ] && START_ARGS+=(--runner "$RUNTIME")
+  LAST_START="$BREEZE_DIR/runner/last-start.env"
+  if [ -f "$LAST_START" ]; then
+    LAST_PORT="$(awk -F= '/^http_port=/{print $2}' "$LAST_START" | tail -n 1)"
+    LAST_POLL="$(awk -F= '/^poll_interval_secs=/{print $2}' "$LAST_START" | tail -n 1)"
+    [ -n "$LAST_PORT" ] && START_ARGS+=(--http-port "$LAST_PORT")
+    [ -n "$LAST_POLL" ] && START_ARGS+=(--poll-interval-secs "$LAST_POLL")
+  fi
   "$RUNNER" start "${START_ARGS[@]}"
-  echo "STARTED: --allow-repo $SCOPE${FOLLOW_SCOPE:+ --author-follow-repo $FOLLOW_SCOPE}${RUNTIME:+ --runner $RUNTIME}"
+  echo "STARTED: --allow-repo $SCOPE${FOLLOW_SCOPE:+ --author-follow-repo $FOLLOW_SCOPE}${FOLLOW_SCOPE:- --no-author-follow}${RUNTIME:+ --runner $RUNTIME}"
 fi
 
 if [ "$TRAY" = "1" ]; then

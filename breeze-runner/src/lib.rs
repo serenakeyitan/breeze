@@ -33,6 +33,7 @@ pub fn main_entry(args: Vec<String>) -> AppResult<()> {
         CommandKind::Stop => service.stop(),
         CommandKind::Poll => service.poll_inbox(),
         CommandKind::Runtime => service.runtime_command(),
+        CommandKind::AuthorFollow => service.author_follow_command(),
         CommandKind::Help => {
             println!("{}", Config::usage());
             Ok(())
