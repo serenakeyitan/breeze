@@ -42,7 +42,7 @@ cargo run --manifest-path breeze-runner/Cargo.toml -- stop
 - Refuses to start if another `breeze-runner` instance is already running for the same `host + login + profile`.
 - Sweeps actionable notification threads from the last 24 hours on every poll, even if they are already marked read, and only uses GitHub search as a slower backfill path.
 - Author-follow is optional and off by default, same picker as `--allow-repo`. `breeze-runner author-follow owner/repo` turns it on; `author-follow off` turns it off. GitHub never sends `review_requested` to the author, so this path does not use the 24-hour lookback.
-- Creates one isolated `git worktree` per scheduled task.
+- Reuses one isolated `git worktree` per PR/issue thread instead of creating a new checkout on every poll.
 - Prepares a local snapshot for each task before the agent starts so the agent can inspect GitHub context without re-fetching it.
 - Launches `grok`, `codex`, and/or `claude` in the configured order with dangerous local permissions.
 - Keeps local agent/worktree fan-out high while brokering all in-task `gh` commands through a single paced queue.
@@ -50,7 +50,7 @@ cargo run --manifest-path breeze-runner/Cargo.toml -- stop
 
 ## Notes
 
-- The localhost dashboard lists every breeze-runner task (author-follow, reviews, skips, failures) plus leftover GitHub inbox rows.
+- The localhost dashboard lists every breeze-runner task (author-follow, reviews, skips, failures, timeouts) and the live allowlist / author-follow / runtime from `/runtime`.
 - Public agent replies must end with a footer linking https://github.com/serenakeyitan/breeze.
 - Brokered `gh` commands are serialized and mutating operations are spaced out to reduce rate-limit pressure.
 - `run-once` is the safest way to validate the whole loop before `start`.

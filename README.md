@@ -166,7 +166,7 @@ GitHub API  →  Poller (launchd)  →  ~/.breeze/inbox.json  →  Statusline
      └──────────  gh label   ←──── apply breeze:{wip,human,done}
 ```
 
-The localhost dashboard (`breeze-runner --http-port`) lists **all breeze work** — author-follow reviews, review_requested jobs, skips, failures — not only GitHub notifications. Inbox rows still appear when they have not become a task yet.
+The localhost dashboard (`breeze-runner --http-port`) lists **every breeze task** from the live runner: author-follow, review requests, skips, failures, timeouts. Status filters and the header (allowlist, author-follow, runtime) come from the daemon, so changing repos or follow settings does not require a dashboard change.
 
 State lives on GitHub via labels. The local inbox.json is just a cache of what GitHub sent us plus the current label-derived status.
 
