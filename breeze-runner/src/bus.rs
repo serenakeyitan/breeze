@@ -16,6 +16,7 @@ pub enum Event {
         new_count: usize,
     },
     Activity(String),
+    WorkUpdated,
 }
 
 #[derive(Clone, Debug, Default)]

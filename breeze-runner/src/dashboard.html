@@ -62,6 +62,12 @@
   .badge.human { background: color-mix(in srgb, var(--human) 15%, transparent); color: var(--human); }
   .badge.wip { background: color-mix(in srgb, var(--wip) 15%, transparent); color: var(--wip); }
   .badge.done { background: color-mix(in srgb, var(--done) 15%, transparent); color: var(--done); }
+  .badge.running { background: color-mix(in srgb, var(--wip) 15%, transparent); color: var(--wip); }
+  .badge.handled { background: color-mix(in srgb, var(--done) 15%, transparent); color: var(--done); }
+  .badge.skipped { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
+  .badge.failed { background: color-mix(in srgb, var(--human) 18%, transparent); color: var(--human); }
+  .badge.orphaned { background: color-mix(in srgb, var(--human) 18%, transparent); color: var(--human); }
+  .source-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
   .label-chip { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 6px; background: var(--border); color: var(--muted); margin-right: 4px; }
   .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
 </style>
@@ -77,21 +83,22 @@
   <div class="filters">
     <input type="search" id="search" placeholder="filter by repo or title…" autocomplete="off" />
     <button data-status="all" class="active">all</button>
-    <button data-status="new">new</button>
-    <button data-status="human">human</button>
-    <button data-status="wip">wip</button>
-    <button data-status="done">done</button>
+    <button data-status="running">running</button>
+    <button data-status="handled">handled</button>
+    <button data-status="skipped">skipped</button>
+    <button data-status="failed">failed</button>
+    <button data-status="inbox">inbox</button>
   </div>
   <table>
     <thead><tr>
-      <th>status</th><th>type</th><th>repo</th><th>title</th><th>labels</th><th class="priority">p</th><th class="updated">updated</th>
+      <th>status</th><th>source</th><th>repo</th><th>title</th><th class="updated">updated</th>
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
   <div class="empty" id="empty" hidden>No notifications.</div>
 </main>
 <script>
-  const state = { inbox: null, filter: "all", query: "" };
+  const state = { items: [], inboxPoll: "", filter: "all", query: "" };
 
   function format(ts) {
     if (!ts) return "—";
@@ -109,35 +116,55 @@
     return (s || "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
   }
 
-  function render() {
-    const data = state.inbox;
-    if (!data) return;
-    document.getElementById("last-poll").textContent =
-      "last poll " + format(data.last_poll);
+  function canonicalUrl(url) {
+    return (url || "").replace(/\/+$/, "").toLowerCase();
+  }
 
-    const buckets = { new: 0, human: 0, wip: 0, done: 0 };
-    for (const n of data.notifications) {
-      buckets[n.breeze_status] = (buckets[n.breeze_status] || 0) + 1;
+  function sourceLabel(source) {
+    if (source === "author-follow") return "author-follow";
+    if (source === "review-search") return "review-search";
+    if (source === "assigned-search") return "assigned";
+    if (source === "notifications") return "notification";
+    if (source === "inbox") return "inbox";
+    return source || "task";
+  }
+
+  function render() {
+    const newest = state.items[0];
+    const parts = [];
+    if (newest) parts.push("latest " + format(newest.updated_at));
+    if (state.inboxPoll) parts.push("inbox " + format(state.inboxPoll));
+    document.getElementById("last-poll").textContent = parts.join(" · ") || "loading…";
+
+    const buckets = { running: 0, handled: 0, skipped: 0, failed: 0, inbox: 0 };
+    for (const item of state.items) {
+      const key = item.status === "inbox" || item.source === "inbox" ? "inbox" : item.status;
+      if (buckets[key] !== undefined) buckets[key] += 1;
+      else if (item.source === "inbox") buckets.inbox += 1;
     }
-    document.getElementById("counts").innerHTML = ["new","human","wip","done"]
+    document.getElementById("counts").innerHTML = ["running","handled","skipped","failed","inbox"]
       .map(k => `<span class="count-chip ${k}"><b>${buckets[k] || 0}</b>${k}</span>`)
       .join("");
 
     const q = state.query.toLowerCase();
-    const rows = data.notifications
-      .filter(n => state.filter === "all" || n.breeze_status === state.filter)
-      .filter(n => !q || (n.repo || "").toLowerCase().includes(q) || (n.title || "").toLowerCase().includes(q))
-      .map(n => {
-        const labels = (n.labels || []).filter(l => !l.startsWith("breeze:"))
-          .map(l => `<span class="label-chip">${escape(l)}</span>`).join("");
+    const rows = state.items
+      .filter(item => {
+        if (state.filter === "all") return true;
+        if (state.filter === "inbox") return item.source === "inbox";
+        return item.status === state.filter;
+      })
+      .filter(item => !q || (item.repo || "").toLowerCase().includes(q) || (item.title || "").toLowerCase().includes(q))
+      .map(item => {
+        const href = item.url || "#";
+        const title = item.summary
+          ? `<a href="${escape(href)}" target="_blank" rel="noopener" title="${escape(item.summary)}">${escape(item.title)}</a>`
+          : `<a href="${escape(href)}" target="_blank" rel="noopener">${escape(item.title)}</a>`;
         return `<tr>
-          <td><span class="badge ${n.breeze_status}">${n.breeze_status}</span></td>
-          <td>${escape(n.type)}</td>
-          <td class="repo">${escape(n.repo)}</td>
-          <td><a href="${escape(n.html_url)}" target="_blank" rel="noopener">${escape(n.title)}</a></td>
-          <td>${labels}</td>
-          <td class="priority">${n.priority}</td>
-          <td class="updated" title="${escape(n.updated_at)}">${format(n.updated_at)}</td>
+          <td><span class="badge ${escape(item.status)}">${escape(item.status)}</span></td>
+          <td class="source-chip">${escape(sourceLabel(item.source))}</td>
+          <td class="repo">${escape(item.repo)}</td>
+          <td>${title}</td>
+          <td class="updated" title="${escape(item.updated_at)}">${format(item.updated_at)}</td>
         </tr>`;
       })
       .join("");
@@ -146,15 +173,44 @@
     document.getElementById("empty").hidden = rows.length > 0;
   }
 
-  async function fetchInbox() {
+  async function refresh() {
     try {
-      const res = await fetch("/inbox", { cache: "no-store" });
-      if (res.ok) {
-        state.inbox = await res.json();
-        render();
+      const [workRes, inboxRes] = await Promise.all([
+        fetch("/work", { cache: "no-store" }),
+        fetch("/inbox", { cache: "no-store" }),
+      ]);
+      const work = workRes.ok ? await workRes.json() : { items: [] };
+      const inbox = inboxRes.ok ? await inboxRes.json() : { notifications: [], last_poll: "" };
+      state.inboxPoll = inbox.last_poll || "";
+      const items = [];
+      const seen = new Set();
+      for (const item of (work.items || [])) {
+        items.push(item);
+        const key = canonicalUrl(item.url);
+        if (key) seen.add(key);
       }
+      for (const n of (inbox.notifications || [])) {
+        const url = n.html_url || "";
+        const key = canonicalUrl(url);
+        if (key && seen.has(key)) continue;
+        items.push({
+          id: n.id,
+          source: "inbox",
+          status: n.breeze_status || "inbox",
+          kind: n.type || "",
+          reason: n.reason || "",
+          repo: n.repo || "",
+          title: n.title || "",
+          url,
+          summary: "",
+          updated_at: n.updated_at || "",
+        });
+      }
+      items.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+      state.items = items;
+      render();
     } catch (error) {
-      console.warn("inbox fetch failed", error);
+      console.warn("board refresh failed", error);
     }
   }
 
@@ -165,8 +221,9 @@
       pill.textContent = "live";
       pill.classList.add("live");
     });
-    ev.addEventListener("inbox", () => fetchInbox());
-    ev.addEventListener("activity", () => fetchInbox());
+    ev.addEventListener("inbox", () => refresh());
+    ev.addEventListener("activity", () => refresh());
+    ev.addEventListener("work", () => refresh());
     ev.onerror = () => {
       pill.textContent = "offline — retrying";
       pill.classList.remove("live");
@@ -186,8 +243,9 @@
     render();
   });
 
-  fetchInbox();
+  refresh();
   connectSse();
+  setInterval(refresh, 15000);
 </script>
 </body>
 </html>

@@ -9,12 +9,14 @@ use std::time::Duration;
 use crate::bus::{Bus, Event};
 use crate::json::Json;
 use crate::util::{AppResult, app_error, read_text_if_exists};
+use crate::work;
 
 /// Run the HTTP + SSE server until `stop` flips to true.
 ///
 /// Routes:
 ///   GET /healthz   → "ok"
 ///   GET /inbox     → raw inbox.json (passthrough)
+///   GET /work      → recent breeze-runner tasks (author-follow, reviews, …)
 ///   GET /activity  → last 200 activity.log lines
 ///   GET /events    → Server-Sent Events (SSE) stream subscribed to the bus
 ///
@@ -22,6 +24,7 @@ use crate::util::{AppResult, app_error, read_text_if_exists};
 pub fn serve(
     address: SocketAddr,
     inbox_dir: PathBuf,
+    tasks_dir: PathBuf,
     bus: Bus,
     stop: Arc<AtomicBool>,
 ) -> AppResult<()> {
@@ -42,10 +45,13 @@ pub fn serve(
         match listener.accept() {
             Ok((stream, _peer)) => {
                 let inbox_dir = inbox_dir.clone();
+                let tasks_dir = tasks_dir.clone();
                 let bus = bus.clone();
                 let stop = stop.clone();
                 thread::spawn(move || {
-                    if let Err(error) = handle_connection(stream, &inbox_dir, &bus, &stop) {
+                    if let Err(error) =
+                        handle_connection(stream, &inbox_dir, &tasks_dir, &bus, &stop)
+                    {
                         eprintln!("breeze: http connection error: {error}");
                     }
                 });
@@ -65,6 +71,7 @@ pub fn serve(
 fn handle_connection(
     stream: TcpStream,
     inbox_dir: &PathBuf,
+    tasks_dir: &PathBuf,
     bus: &Bus,
     stop: &Arc<AtomicBool>,
 ) -> AppResult<()> {
@@ -81,6 +88,7 @@ fn handle_connection(
         Route::Dashboard => write_dashboard(stream),
         Route::Healthz => write_plain(stream, 200, "ok\n"),
         Route::Inbox => write_json_file(stream, &inbox_dir.join("inbox.json")),
+        Route::Work => write_work(stream, tasks_dir),
         Route::Activity => write_activity_tail(stream, &inbox_dir.join("activity.log"), 200),
         Route::Events => stream_events(stream, bus, stop),
         Route::NotFound => write_plain(stream, 404, "not found\n"),
@@ -140,6 +148,7 @@ enum Route {
     Dashboard,
     Healthz,
     Inbox,
+    Work,
     Activity,
     Events,
     NotFound,
@@ -161,6 +170,7 @@ fn parse_route(request_line: &str) -> Route {
         "/" | "/dashboard" | "/index.html" => Route::Dashboard,
         "/healthz" => Route::Healthz,
         "/inbox" => Route::Inbox,
+        "/work" => Route::Work,
         "/activity" => Route::Activity,
         "/events" => Route::Events,
         _ => Route::NotFound,
@@ -179,6 +189,29 @@ fn write_plain(mut stream: TcpStream, status: u16, body: &str) -> AppResult<()> 
          {body}",
         len = body.len()
     );
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| app_error(format!("write failed: {error}")))
+}
+
+fn write_work(stream: TcpStream, tasks_dir: &std::path::Path) -> AppResult<()> {
+    let body = match work::work_payload(tasks_dir) {
+        Ok(value) => value,
+        Err(error) => {
+            return write_plain(stream, 500, &format!("{error}\n"));
+        }
+    };
+    let response = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: application/json; charset=utf-8\r\n\
+         Content-Length: {len}\r\n\
+         Cache-Control: no-store\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        len = body.len()
+    );
+    let mut stream = stream;
     stream
         .write_all(response.as_bytes())
         .map_err(|error| app_error(format!("write failed: {error}")))
@@ -304,6 +337,7 @@ fn emit_event(stream: &mut TcpStream, event: &Event) -> AppResult<()> {
             send_sse(stream, "inbox", &payload)
         }
         Event::Activity(line) => send_sse(stream, "activity", line),
+        Event::WorkUpdated => send_sse(stream, "work", &Json::str("updated").encode()),
     }
 }
 
@@ -335,6 +369,7 @@ fn reason_phrase(status: u16) -> &'static str {
     match status {
         200 => "OK",
         404 => "Not Found",
+        500 => "Internal Server Error",
         _ => "",
     }
 }
@@ -352,6 +387,7 @@ mod tests {
     fn parses_known_routes() {
         assert_eq!(parse_route("GET /healthz HTTP/1.1"), Route::Healthz);
         assert_eq!(parse_route("GET /inbox HTTP/1.1"), Route::Inbox);
+        assert_eq!(parse_route("GET /work HTTP/1.1"), Route::Work);
         assert_eq!(parse_route("GET /activity HTTP/1.1"), Route::Activity);
         assert_eq!(parse_route("GET /events HTTP/1.1"), Route::Events);
         assert_eq!(parse_route("GET / HTTP/1.1"), Route::Dashboard);

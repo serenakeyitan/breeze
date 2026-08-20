@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::broker::GhBroker;
+use crate::bus::{Bus, Event};
 use crate::config::{
     read_preferred_runtime, write_preferred_runtime, CommandKind, Config, RepoFilter,
 };
@@ -584,7 +585,7 @@ impl Service {
 
     pub fn run_once(&mut self) -> AppResult<()> {
         self.acquire_lock()?;
-        self.run_loop(true)
+        self.run_loop(true, None)
     }
 
     pub fn run_forever(&mut self) -> AppResult<()> {
@@ -595,7 +596,7 @@ impl Service {
         if !self.config.http_disabled {
             self.spawn_http_server(bus.clone(), stop.clone())?;
         }
-        let result = self.run_loop(false);
+        let result = self.run_loop(false, Some(bus));
         stop.store(true, Ordering::Relaxed);
         result
     }
@@ -651,12 +652,13 @@ impl Service {
         stop: Arc<AtomicBool>,
     ) -> AppResult<()> {
         let inbox_dir = crate::fetcher::resolve_inbox_dir()?;
+        let tasks_dir = self.store.tasks_dir.clone();
         let address = std::net::SocketAddr::new(
             std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             self.config.http_port,
         );
         thread::spawn(move || {
-            if let Err(error) = crate::http::serve(address, inbox_dir, bus, stop) {
+            if let Err(error) = crate::http::serve(address, inbox_dir, tasks_dir, bus, stop) {
                 eprintln!("breeze: http server exited with error: {error}");
             }
         });
@@ -675,7 +677,7 @@ impl Service {
         Ok(())
     }
 
-    fn run_loop(&mut self, once: bool) -> AppResult<()> {
+    fn run_loop(&mut self, once: bool, bus: Option<Bus>) -> AppResult<()> {
         let (completion_sender, completion_receiver): (
             Sender<TaskCompletion>,
             Receiver<TaskCompletion>,
@@ -702,6 +704,7 @@ impl Service {
                 &mut queued_threads,
                 &mut active,
                 completion_sender.clone(),
+                bus.as_ref(),
             )?;
 
             let timeout = if once {
@@ -717,7 +720,7 @@ impl Service {
 
             match completion_receiver.recv_timeout(timeout) {
                 Ok(completion) => {
-                    self.handle_completion(completion, &mut active)?;
+                    self.handle_completion(completion, &mut active, bus.as_ref())?;
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if once {
@@ -913,6 +916,7 @@ impl Service {
         queued_threads: &mut HashSet<String>,
         active: &mut HashMap<String, ActiveTask>,
         completion_sender: Sender<TaskCompletion>,
+        bus: Option<&Bus>,
     ) -> AppResult<()> {
         while active.len() < self.config.max_parallel && !pending.is_empty() {
             let candidate = pending.pop_front().expect("pending not empty");
@@ -1042,6 +1046,9 @@ impl Service {
                     title: candidate.title.clone(),
                 },
             );
+            if let Some(bus) = bus {
+                bus.publish(Event::WorkUpdated);
+            }
         }
         Ok(())
     }
@@ -1116,6 +1123,7 @@ impl Service {
         &self,
         completion: TaskCompletion,
         active: &mut HashMap<String, ActiveTask>,
+        bus: Option<&Bus>,
     ) -> AppResult<()> {
         active.remove(&completion.task_id);
         let mut metadata = self.store.read_task_metadata(&completion.task_id)?;
@@ -1173,6 +1181,9 @@ impl Service {
                 record.last_task_id = completion.task_id.clone();
                 self.store.save_thread_record(&record)?;
             }
+        }
+        if let Some(bus) = bus {
+            bus.publish(Event::WorkUpdated);
         }
         Ok(())
     }

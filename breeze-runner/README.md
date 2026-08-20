@@ -50,6 +50,7 @@ cargo run --manifest-path breeze-runner/Cargo.toml -- stop
 
 ## Notes
 
+- The localhost dashboard lists every breeze-runner task (author-follow, reviews, skips, failures) plus leftover GitHub inbox rows.
 - Public agent replies must end with a footer linking https://github.com/serenakeyitan/breeze.
 - Brokered `gh` commands are serialized and mutating operations are spaced out to reduce rate-limit pressure.
 - `run-once` is the safest way to validate the whole loop before `start`.

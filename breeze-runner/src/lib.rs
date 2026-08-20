@@ -14,6 +14,7 @@ mod service;
 mod store;
 mod task;
 mod util;
+mod work;
 mod workspace;
 
 use config::{CommandKind, Config};
