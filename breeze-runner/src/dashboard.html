@@ -31,9 +31,10 @@
   }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 1.4; }
-  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 16px; align-items: baseline; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
   header .meta { color: var(--muted); font-size: 12px; }
+  header .config { color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   header .status-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--border); color: var(--fg); }
   header .status-pill.live { background: #10b98122; color: #10b981; }
   main { padding: 12px 20px; }
@@ -45,6 +46,7 @@
   .count-chip.wip b { color: var(--wip); }
   .count-chip.done b { color: var(--done); }
   .filters { margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #status-filters { display: inline-flex; gap: 8px; flex-wrap: wrap; }
   .filters input[type=search] { padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--fg); font: inherit; }
   .filters button { padding: 3px 8px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
   .filters button.active { color: var(--fg); border-color: var(--accent); }
@@ -67,6 +69,8 @@
   .badge.skipped { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
   .badge.failed { background: color-mix(in srgb, var(--human) 18%, transparent); color: var(--human); }
   .badge.orphaned { background: color-mix(in srgb, var(--human) 18%, transparent); color: var(--human); }
+  .badge.timed_out { background: color-mix(in srgb, var(--human) 18%, transparent); color: var(--human); }
+  .badge.unknown { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
   .source-chip { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
   .label-chip { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 6px; background: var(--border); color: var(--muted); margin-right: 4px; }
   .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
@@ -75,19 +79,15 @@
 <body>
 <header>
   <h1>breeze</h1>
-  <span class="meta" id="last-poll">loading…</span>
+  <span class="config" id="runtime-config">loading…</span>
+  <span class="meta" id="last-poll"></span>
   <span class="status-pill" id="sse-status">connecting</span>
 </header>
 <main>
   <div class="counts" id="counts"></div>
   <div class="filters">
-    <input type="search" id="search" placeholder="filter by repo or title…" autocomplete="off" />
-    <button data-status="all" class="active">all</button>
-    <button data-status="running">running</button>
-    <button data-status="handled">handled</button>
-    <button data-status="skipped">skipped</button>
-    <button data-status="failed">failed</button>
-    <button data-status="orphaned">orphaned</button>
+    <input type="search" id="search" placeholder="filter by repo, title, source…" autocomplete="off" />
+    <span id="status-filters"></span>
   </div>
   <table>
     <thead><tr>
@@ -98,11 +98,17 @@
   <div class="empty" id="empty" hidden>No breeze work yet.</div>
 </main>
 <script>
-  const state = { items: [], inboxPoll: "", filter: "all", query: "" };
+  const state = { items: [], runtime: {}, filter: "all", query: "" };
+  const HIDDEN_RUNTIME = new Set([
+    "active_titles", "last_note", "last_poll_warning", "next_search_reconcile_epoch"
+  ]);
 
   function format(ts) {
     if (!ts) return "—";
-    const d = new Date(ts);
+    const asNumber = Number(ts);
+    const d = Number.isFinite(asNumber) && String(ts).length <= 12
+      ? new Date(asNumber * 1000)
+      : new Date(ts);
     if (isNaN(d)) return ts;
     const now = Date.now();
     const diff = Math.round((now - d.getTime()) / 1000);
@@ -116,36 +122,77 @@
     return (s || "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
   }
 
-  function sourceLabel(source) {
-    if (source === "author-follow") return "author-follow";
-    if (source === "review-search") return "review-search";
-    if (source === "assigned-search") return "assigned";
-    if (source === "notifications") return "notification";
-    return source || "task";
+  function statusesIn(items) {
+    const seen = new Set();
+    for (const item of items) {
+      if (item.status) seen.add(item.status);
+    }
+    return [...seen].sort((a, b) => {
+      const rank = { running: 0, failed: 1, timed_out: 2, orphaned: 3 };
+      const left = rank[a] ?? 10;
+      const right = rank[b] ?? 10;
+      return left - right || a.localeCompare(b);
+    });
+  }
+
+  function renderRuntime() {
+    const runtime = state.runtime || {};
+    const bits = [];
+    for (const [key, value] of Object.entries(runtime)) {
+      if (HIDDEN_RUNTIME.has(key) || value === undefined || value === "") continue;
+      if (key === "last_poll_epoch") {
+        bits.unshift("poll " + format(value));
+        continue;
+      }
+      bits.push(key.replace(/_/g, " ") + " " + value);
+    }
+    document.getElementById("runtime-config").textContent = bits.join(" · ") || "runtime unavailable";
+    const newest = state.items[0];
+    document.getElementById("last-poll").textContent = newest
+      ? "latest " + format(newest.updated_at) + " · " + state.items.length + " events"
+      : "";
+  }
+
+  function renderFilters(statuses) {
+    const host = document.getElementById("status-filters");
+    const options = ["all", ...statuses];
+    if (state.filter !== "all" && !statuses.includes(state.filter)) {
+      state.filter = "all";
+    }
+    host.innerHTML = options.map(status => {
+      const active = status === state.filter ? " active" : "";
+      return `<button data-status="${escape(status)}" class="${active.trim()}">${escape(status)}</button>`;
+    }).join(" ");
+    host.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.filter = btn.dataset.status;
+        render();
+      });
+    });
   }
 
   function render() {
-    const newest = state.items[0];
-    const parts = [];
-    if (newest) parts.push("latest " + format(newest.updated_at));
-    if (state.inboxPoll) parts.push("poll " + format(state.inboxPoll));
-    document.getElementById("last-poll").textContent = parts.join(" · ") || "loading…";
+    renderRuntime();
+    const statuses = statusesIn(state.items);
+    renderFilters(statuses);
 
-    const buckets = { running: 0, handled: 0, skipped: 0, failed: 0, orphaned: 0 };
+    const buckets = {};
     for (const item of state.items) {
-      if (buckets[item.status] !== undefined) buckets[item.status] += 1;
+      const key = item.status || "unknown";
+      buckets[key] = (buckets[key] || 0) + 1;
     }
-    document.getElementById("counts").innerHTML = ["running","handled","skipped","failed","orphaned"]
-      .map(k => `<span class="count-chip ${k}"><b>${buckets[k] || 0}</b>${k}</span>`)
+    document.getElementById("counts").innerHTML = statuses
+      .map(k => `<span class="count-chip ${escape(k)}"><b>${buckets[k] || 0}</b>${escape(k)}</span>`)
       .join("");
 
     const q = state.query.toLowerCase();
     const rows = state.items
+      .filter(item => state.filter === "all" || item.status === state.filter)
       .filter(item => {
-        if (state.filter === "all") return true;
-        return item.status === state.filter;
+        if (!q) return true;
+        return [item.repo, item.title, item.source, item.summary, item.status]
+          .some(value => (value || "").toLowerCase().includes(q));
       })
-      .filter(item => !q || (item.repo || "").toLowerCase().includes(q) || (item.title || "").toLowerCase().includes(q))
       .map(item => {
         const href = item.url || "#";
         const title = item.summary
@@ -153,8 +200,8 @@
           : `<a href="${escape(href)}" target="_blank" rel="noopener">${escape(item.title)}</a>`;
         return `<tr>
           <td><span class="badge ${escape(item.status)}">${escape(item.status)}</span></td>
-          <td class="source-chip">${escape(sourceLabel(item.source))}</td>
-          <td class="repo">${escape(item.repo)}</td>
+          <td class="source-chip">${escape(item.source || "task")}</td>
+          <td class="repo">${escape(item.repo || "—")}</td>
           <td>${title}</td>
           <td class="updated" title="${escape(item.updated_at)}">${format(item.updated_at)}</td>
         </tr>`;
@@ -167,13 +214,12 @@
 
   async function refresh() {
     try {
-      const [workRes, inboxRes] = await Promise.all([
+      const [workRes, runtimeRes] = await Promise.all([
         fetch("/work", { cache: "no-store" }),
-        fetch("/inbox", { cache: "no-store" }),
+        fetch("/runtime", { cache: "no-store" }),
       ]);
       const work = workRes.ok ? await workRes.json() : { items: [] };
-      const inbox = inboxRes.ok ? await inboxRes.json() : { last_poll: "" };
-      state.inboxPoll = inbox.last_poll || "";
+      state.runtime = runtimeRes.ok ? await runtimeRes.json() : {};
       state.items = work.items || [];
       render();
     } catch (error) {
@@ -197,14 +243,6 @@
     };
   }
 
-  document.querySelectorAll(".filters button").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".filters button").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.filter = btn.dataset.status;
-      render();
-    });
-  });
   document.getElementById("search").addEventListener("input", event => {
     state.query = event.target.value;
     render();

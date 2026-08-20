@@ -5,8 +5,6 @@ use std::path::Path;
 use crate::json::Json;
 use crate::util::{decode_multiline, parse_kv_lines, read_text_if_exists, AppResult};
 
-const DEFAULT_LIMIT: usize = 500;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkItem {
     pub id: String,
@@ -23,7 +21,7 @@ pub struct WorkItem {
     pub sort_epoch: u64,
 }
 
-pub fn recent_work(tasks_dir: &Path, limit: usize) -> AppResult<Vec<WorkItem>> {
+pub fn recent_work(tasks_dir: &Path) -> AppResult<Vec<WorkItem>> {
     if !tasks_dir.exists() {
         return Ok(Vec::new());
     }
@@ -34,71 +32,39 @@ pub fn recent_work(tasks_dir: &Path, limit: usize) -> AppResult<Vec<WorkItem>> {
             continue;
         }
         let task_id = entry.file_name().to_string_lossy().into_owned();
-        let contents = read_text_if_exists(&entry.path().join("task.env"))?.unwrap_or_default();
-        let meta: HashMap<String, String> = parse_kv_lines(&contents).into_iter().collect();
+        let meta = read_task_metadata(&entry.path());
         if let Some(item) = work_item_from_metadata(task_id, meta) {
             items.push(item);
         }
     }
-    let mut items = collapse_latest_per_thread(items);
     items.sort_by(|left, right| {
         right
             .sort_epoch
             .cmp(&left.sort_epoch)
             .then_with(|| right.id.cmp(&left.id))
     });
-    if items.len() > limit {
-        items.truncate(limit);
-    }
     Ok(items)
 }
 
-fn collapse_latest_per_thread(items: Vec<WorkItem>) -> Vec<WorkItem> {
-    let mut by_thread: HashMap<String, WorkItem> = HashMap::new();
-    for item in items {
-        let key = thread_collapse_key(&item);
-        match by_thread.get(&key) {
-            Some(existing) if !should_replace_work_item(existing, &item) => {}
-            _ => {
-                by_thread.insert(key, item);
-            }
+fn read_task_metadata(task_dir: &Path) -> HashMap<String, String> {
+    let mut meta: HashMap<String, String> = HashMap::new();
+    if let Ok(Some(contents)) = read_text_if_exists(&task_dir.join("snapshot/task-summary.env")) {
+        for (key, value) in parse_kv_lines(&contents) {
+            meta.insert(key, value);
         }
     }
-    by_thread.into_values().collect()
-}
-
-fn thread_collapse_key(item: &WorkItem) -> String {
-    if !item.thread_key.is_empty() {
-        return item.thread_key.clone();
+    if let Ok(Some(contents)) = read_text_if_exists(&task_dir.join("task.env")) {
+        for (key, value) in parse_kv_lines(&contents) {
+            meta.insert(key, value);
+        }
+    } else if !meta.is_empty() && !meta.contains_key("status") {
+        meta.insert("status".to_string(), "running".to_string());
     }
-    if !item.url.is_empty() {
-        return item.url.trim_end_matches('/').to_ascii_lowercase();
-    }
-    item.id.clone()
-}
-
-fn should_replace_work_item(existing: &WorkItem, candidate: &WorkItem) -> bool {
-    let existing_rank = work_status_rank(&existing.status);
-    let candidate_rank = work_status_rank(&candidate.status);
-    if candidate_rank != existing_rank {
-        return candidate_rank > existing_rank;
-    }
-    candidate.sort_epoch > existing.sort_epoch
-        || (candidate.sort_epoch == existing.sort_epoch && candidate.id > existing.id)
-}
-
-fn work_status_rank(status: &str) -> u8 {
-    match status {
-        "running" => 4,
-        "failed" => 3,
-        "handled" | "simulated" | "skipped" => 2,
-        "orphaned" => 0,
-        _ => 1,
-    }
+    meta
 }
 
 pub fn work_payload(tasks_dir: &Path) -> AppResult<String> {
-    let items = recent_work(tasks_dir, DEFAULT_LIMIT)?;
+    let items = recent_work(tasks_dir)?;
     Ok(work_items_to_json(&items))
 }
 
@@ -132,10 +98,22 @@ fn work_item_from_metadata(
     task_id: String,
     meta: HashMap<String, String>,
 ) -> Option<WorkItem> {
-    let repo = meta.get("repo").cloned().unwrap_or_default();
-    let title = decode_multiline(meta.get("title").map(String::as_str).unwrap_or(""));
-    if repo.is_empty() && title.is_empty() {
+    if meta.is_empty() {
         return None;
+    }
+    let repo = meta.get("repo").cloned().unwrap_or_default();
+    let summary = decode_multiline(meta.get("summary").map(String::as_str).unwrap_or(""));
+    let mut title = decode_multiline(meta.get("title").map(String::as_str).unwrap_or(""));
+    if title.is_empty() {
+        title = summary
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+    }
+    if title.is_empty() {
+        title = task_id.clone();
     }
     let thread_key = meta.get("thread_key").cloned().unwrap_or_default();
     let url = meta
@@ -161,7 +139,7 @@ fn work_item_from_metadata(
         repo,
         title,
         url,
-        summary: decode_multiline(meta.get("summary").map(String::as_str).unwrap_or("")),
+        summary,
         updated_at: display_timestamp(sort_epoch, meta.get("updated_at").map(String::as_str)),
         thread_key,
         sort_epoch,
@@ -292,16 +270,16 @@ mod tests {
             "repo=acme/two\ntitle=new\nstatus=running\nsource=author-follow\nstarted_at=200\n",
         )
         .unwrap();
-        let items = recent_work(&dir, 10).unwrap();
+        let items = recent_work(&dir).unwrap();
         assert_eq!(items[0].repo, "acme/two");
         assert_eq!(items[1].repo, "acme/one");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn collapses_repeat_runs_of_the_same_thread() {
+    fn lists_every_run_of_the_same_thread() {
         let dir = std::env::temp_dir().join(format!(
-            "breeze-work-collapse-{}",
+            "breeze-work-runs-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -309,7 +287,6 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join("task-1")).unwrap();
         std::fs::create_dir_all(dir.join("task-2")).unwrap();
-        std::fs::create_dir_all(dir.join("task-3")).unwrap();
         write_text(
             &dir.join("task-1/task.env"),
             "repo=acme/one\ntitle=pr\nstatus=handled\nsource=author-follow\nthread_key=/repos/acme/one/pulls/77\nfinished_at=100\n",
@@ -317,46 +294,50 @@ mod tests {
         .unwrap();
         write_text(
             &dir.join("task-2/task.env"),
-            "repo=acme/one\ntitle=pr\nstatus=orphaned\nsource=author-follow\nthread_key=/repos/acme/one/pulls/77\nfinished_at=300\n",
+            "repo=acme/one\ntitle=pr\nstatus=skipped\nsource=author-follow\nthread_key=/repos/acme/one/pulls/77\nfinished_at=300\n",
         )
         .unwrap();
-        write_text(
-            &dir.join("task-3/task.env"),
-            "repo=acme/two\ntitle=other\nstatus=handled\nsource=author-follow\nthread_key=/repos/acme/two/pulls/1\nfinished_at=200\n",
-        )
-        .unwrap();
-        let items = recent_work(&dir, 10).unwrap();
+        let items = recent_work(&dir).unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0].repo, "acme/two");
-        assert_eq!(items[1].repo, "acme/one");
+        assert_eq!(items[0].status, "skipped");
         assert_eq!(items[1].status, "handled");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn prefers_a_live_run_over_an_orphaned_restart() {
+    fn includes_tasks_that_only_have_a_summary() {
+        let mut meta = HashMap::new();
+        meta.insert("status".to_string(), "timed_out".to_string());
+        meta.insert(
+            "summary".to_string(),
+            "codex agent exited with status 1".to_string(),
+        );
+        let item = work_item_from_metadata("task-1".to_string(), meta).unwrap();
+        assert_eq!(item.status, "timed_out");
+        assert_eq!(item.title, "codex agent exited with status 1");
+        assert!(item.repo.is_empty());
+    }
+
+    #[test]
+    fn snapshot_fills_in_a_task_without_task_env() {
         let dir = std::env::temp_dir().join(format!(
-            "breeze-work-live-{}",
+            "breeze-work-snapshot-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        std::fs::create_dir_all(dir.join("task-1")).unwrap();
-        std::fs::create_dir_all(dir.join("task-2")).unwrap();
+        std::fs::create_dir_all(dir.join("task-live/snapshot")).unwrap();
         write_text(
-            &dir.join("task-1/task.env"),
-            "repo=acme/one\ntitle=pr\nstatus=orphaned\nsource=author-follow\nthread_key=/repos/acme/one/pulls/77\nfinished_at=400\n",
+            &dir.join("task-live/snapshot/task-summary.env"),
+            "repo=acme/one\ntitle=live pr\nthread_key=/repos/acme/one/pulls/9\nupdated_at=2026-08-20T02:40:48Z\n",
         )
         .unwrap();
-        write_text(
-            &dir.join("task-2/task.env"),
-            "repo=acme/one\ntitle=pr\nstatus=running\nsource=author-follow\nthread_key=/repos/acme/one/pulls/77\nstarted_at=200\n",
-        )
-        .unwrap();
-        let items = recent_work(&dir, 10).unwrap();
+        let items = recent_work(&dir).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].status, "running");
+        assert_eq!(items[0].repo, "acme/one");
+        assert_eq!(items[0].title, "live pr");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

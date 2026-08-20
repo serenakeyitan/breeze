@@ -653,12 +653,15 @@ impl Service {
     ) -> AppResult<()> {
         let inbox_dir = crate::fetcher::resolve_inbox_dir()?;
         let tasks_dir = self.store.tasks_dir.clone();
+        let runtime_path = self.store.runtime_path.clone();
         let address = std::net::SocketAddr::new(
             std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             self.config.http_port,
         );
         thread::spawn(move || {
-            if let Err(error) = crate::http::serve(address, inbox_dir, tasks_dir, bus, stop) {
+            if let Err(error) =
+                crate::http::serve(address, inbox_dir, tasks_dir, runtime_path, bus, stop)
+            {
                 eprintln!("breeze: http server exited with error: {error}");
             }
         });
@@ -1237,6 +1240,11 @@ impl Service {
                 } else {
                     self.config.author_follow_filter.display_patterns()
                 },
+            ),
+            ("runners".to_string(), self.config.runners_csv()),
+            (
+                "poll_interval_secs".to_string(),
+                self.config.poll_interval_secs.to_string(),
             ),
             ("active_tasks".to_string(), active.len().to_string()),
             ("queued_tasks".to_string(), queued_tasks.to_string()),

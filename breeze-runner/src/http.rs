@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::bus::{Bus, Event};
 use crate::json::Json;
-use crate::util::{AppResult, app_error, read_text_if_exists};
+use crate::util::{AppResult, app_error, parse_kv_lines, read_text_if_exists};
 use crate::work;
 
 /// Run the HTTP + SSE server until `stop` flips to true.
@@ -16,7 +16,8 @@ use crate::work;
 /// Routes:
 ///   GET /healthz   → "ok"
 ///   GET /inbox     → raw inbox.json (passthrough)
-///   GET /work      → latest breeze-runner task per thread (author-follow, reviews, …)
+///   GET /work      → every breeze-runner task (all sources, repos, statuses)
+///   GET /runtime   → live runner status.env (allowlist, author-follow, …)
 ///   GET /activity  → last 200 activity.log lines
 ///   GET /events    → Server-Sent Events (SSE) stream subscribed to the bus
 ///
@@ -25,6 +26,7 @@ pub fn serve(
     address: SocketAddr,
     inbox_dir: PathBuf,
     tasks_dir: PathBuf,
+    runtime_path: PathBuf,
     bus: Bus,
     stop: Arc<AtomicBool>,
 ) -> AppResult<()> {
@@ -46,12 +48,18 @@ pub fn serve(
             Ok((stream, _peer)) => {
                 let inbox_dir = inbox_dir.clone();
                 let tasks_dir = tasks_dir.clone();
+                let runtime_path = runtime_path.clone();
                 let bus = bus.clone();
                 let stop = stop.clone();
                 thread::spawn(move || {
-                    if let Err(error) =
-                        handle_connection(stream, &inbox_dir, &tasks_dir, &bus, &stop)
-                    {
+                    if let Err(error) = handle_connection(
+                        stream,
+                        &inbox_dir,
+                        &tasks_dir,
+                        &runtime_path,
+                        &bus,
+                        &stop,
+                    ) {
                         eprintln!("breeze: http connection error: {error}");
                     }
                 });
@@ -72,6 +80,7 @@ fn handle_connection(
     stream: TcpStream,
     inbox_dir: &PathBuf,
     tasks_dir: &PathBuf,
+    runtime_path: &PathBuf,
     bus: &Bus,
     stop: &Arc<AtomicBool>,
 ) -> AppResult<()> {
@@ -89,6 +98,7 @@ fn handle_connection(
         Route::Healthz => write_plain(stream, 200, "ok\n"),
         Route::Inbox => write_json_file(stream, &inbox_dir.join("inbox.json")),
         Route::Work => write_work(stream, tasks_dir),
+        Route::Runtime => write_runtime(stream, runtime_path),
         Route::Activity => write_activity_tail(stream, &inbox_dir.join("activity.log"), 200),
         Route::Events => stream_events(stream, bus, stop),
         Route::NotFound => write_plain(stream, 404, "not found\n"),
@@ -149,6 +159,7 @@ enum Route {
     Healthz,
     Inbox,
     Work,
+    Runtime,
     Activity,
     Events,
     NotFound,
@@ -171,6 +182,7 @@ fn parse_route(request_line: &str) -> Route {
         "/healthz" => Route::Healthz,
         "/inbox" => Route::Inbox,
         "/work" => Route::Work,
+        "/runtime" | "/status" => Route::Runtime,
         "/activity" => Route::Activity,
         "/events" => Route::Events,
         _ => Route::NotFound,
@@ -201,6 +213,22 @@ fn write_work(stream: TcpStream, tasks_dir: &std::path::Path) -> AppResult<()> {
             return write_plain(stream, 500, &format!("{error}\n"));
         }
     };
+    write_json_body(stream, &body)
+}
+
+fn write_runtime(stream: TcpStream, path: &std::path::Path) -> AppResult<()> {
+    let contents = read_text_if_exists(path)?.unwrap_or_default();
+    let body = Json::Object(
+        parse_kv_lines(&contents)
+            .into_iter()
+            .map(|(key, value)| (key, Json::str(value)))
+            .collect(),
+    )
+    .encode();
+    write_json_body(stream, &body)
+}
+
+fn write_json_body(mut stream: TcpStream, body: &str) -> AppResult<()> {
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: application/json; charset=utf-8\r\n\
@@ -211,7 +239,6 @@ fn write_work(stream: TcpStream, tasks_dir: &std::path::Path) -> AppResult<()> {
          {body}",
         len = body.len()
     );
-    let mut stream = stream;
     stream
         .write_all(response.as_bytes())
         .map_err(|error| app_error(format!("write failed: {error}")))
@@ -388,6 +415,8 @@ mod tests {
         assert_eq!(parse_route("GET /healthz HTTP/1.1"), Route::Healthz);
         assert_eq!(parse_route("GET /inbox HTTP/1.1"), Route::Inbox);
         assert_eq!(parse_route("GET /work HTTP/1.1"), Route::Work);
+        assert_eq!(parse_route("GET /runtime HTTP/1.1"), Route::Runtime);
+        assert_eq!(parse_route("GET /status HTTP/1.1"), Route::Runtime);
         assert_eq!(parse_route("GET /activity HTTP/1.1"), Route::Activity);
         assert_eq!(parse_route("GET /events HTTP/1.1"), Route::Events);
         assert_eq!(parse_route("GET / HTTP/1.1"), Route::Dashboard);
