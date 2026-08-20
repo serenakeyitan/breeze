@@ -46,11 +46,28 @@ impl WorkspaceManager {
         self.ensure_mirror(&mirror_dir, &repo_url)?;
         let checkout_ref = self.prepare_ref(&mirror_dir, task)?;
 
-        let workspace_dir = self.workspaces_dir.join(repo_slug).join(format!(
-            "{}-{}",
-            task.kind.as_str(),
-            task.stable_id()
-        ));
+        let workspace_dir = self
+            .workspaces_dir
+            .join(repo_slug)
+            .join(task.workspace_slug());
+        if self.workspace_is_usable(&workspace_dir) {
+            match self.update_workspace_checkout(&workspace_dir, &checkout_ref) {
+                Ok(()) => {
+                    return Ok(WorkspaceLease {
+                        mirror_dir,
+                        workspace_dir,
+                        repo_url,
+                    });
+                }
+                Err(error) => {
+                    eprintln!(
+                        "breeze-runner: reusing {} failed ({error}); recreating workspace",
+                        workspace_dir.display()
+                    );
+                }
+            }
+        }
+
         self.prune_stale_worktree_entry(&mirror_dir, &workspace_dir)?;
         if workspace_dir.exists() {
             remove_dir_if_exists(&workspace_dir)?;
@@ -78,6 +95,27 @@ impl WorkspaceManager {
             workspace_dir,
             repo_url,
         })
+    }
+
+    fn workspace_is_usable(&self, workspace_dir: &Path) -> bool {
+        workspace_dir.join(".git").exists()
+    }
+
+    fn update_workspace_checkout(
+        &self,
+        workspace_dir: &Path,
+        checkout_ref: &str,
+    ) -> AppResult<()> {
+        let mut command = Command::new("git");
+        command
+            .arg("-C")
+            .arg(workspace_dir)
+            .arg("checkout")
+            .arg("--force")
+            .arg("--detach")
+            .arg(checkout_ref);
+        run_command_checked(&mut command, "update task workspace")?;
+        Ok(())
     }
 
     fn ensure_mirror(&self, mirror_dir: &Path, repo_url: &str) -> AppResult<()> {

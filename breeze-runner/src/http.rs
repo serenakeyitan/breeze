@@ -16,7 +16,7 @@ use crate::work;
 /// Routes:
 ///   GET /healthz   → "ok"
 ///   GET /inbox     → raw inbox.json (passthrough)
-///   GET /work      → recent breeze-runner tasks (author-follow, reviews, …)
+///   GET /work      → latest breeze-runner task per thread (author-follow, reviews, …)
 ///   GET /activity  → last 200 activity.log lines
 ///   GET /events    → Server-Sent Events (SSE) stream subscribed to the bus
 ///

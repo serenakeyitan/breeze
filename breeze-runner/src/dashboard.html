@@ -87,7 +87,7 @@
     <button data-status="handled">handled</button>
     <button data-status="skipped">skipped</button>
     <button data-status="failed">failed</button>
-    <button data-status="inbox">inbox</button>
+    <button data-status="orphaned">orphaned</button>
   </div>
   <table>
     <thead><tr>
@@ -95,7 +95,7 @@
     </tr></thead>
     <tbody id="rows"></tbody>
   </table>
-  <div class="empty" id="empty" hidden>No notifications.</div>
+  <div class="empty" id="empty" hidden>No breeze work yet.</div>
 </main>
 <script>
   const state = { items: [], inboxPoll: "", filter: "all", query: "" };
@@ -116,16 +116,11 @@
     return (s || "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
   }
 
-  function canonicalUrl(url) {
-    return (url || "").replace(/\/+$/, "").toLowerCase();
-  }
-
   function sourceLabel(source) {
     if (source === "author-follow") return "author-follow";
     if (source === "review-search") return "review-search";
     if (source === "assigned-search") return "assigned";
     if (source === "notifications") return "notification";
-    if (source === "inbox") return "inbox";
     return source || "task";
   }
 
@@ -133,16 +128,14 @@
     const newest = state.items[0];
     const parts = [];
     if (newest) parts.push("latest " + format(newest.updated_at));
-    if (state.inboxPoll) parts.push("inbox " + format(state.inboxPoll));
+    if (state.inboxPoll) parts.push("poll " + format(state.inboxPoll));
     document.getElementById("last-poll").textContent = parts.join(" · ") || "loading…";
 
-    const buckets = { running: 0, handled: 0, skipped: 0, failed: 0, inbox: 0 };
+    const buckets = { running: 0, handled: 0, skipped: 0, failed: 0, orphaned: 0 };
     for (const item of state.items) {
-      const key = item.status === "inbox" || item.source === "inbox" ? "inbox" : item.status;
-      if (buckets[key] !== undefined) buckets[key] += 1;
-      else if (item.source === "inbox") buckets.inbox += 1;
+      if (buckets[item.status] !== undefined) buckets[item.status] += 1;
     }
-    document.getElementById("counts").innerHTML = ["running","handled","skipped","failed","inbox"]
+    document.getElementById("counts").innerHTML = ["running","handled","skipped","failed","orphaned"]
       .map(k => `<span class="count-chip ${k}"><b>${buckets[k] || 0}</b>${k}</span>`)
       .join("");
 
@@ -150,7 +143,6 @@
     const rows = state.items
       .filter(item => {
         if (state.filter === "all") return true;
-        if (state.filter === "inbox") return item.source === "inbox";
         return item.status === state.filter;
       })
       .filter(item => !q || (item.repo || "").toLowerCase().includes(q) || (item.title || "").toLowerCase().includes(q))
@@ -180,34 +172,9 @@
         fetch("/inbox", { cache: "no-store" }),
       ]);
       const work = workRes.ok ? await workRes.json() : { items: [] };
-      const inbox = inboxRes.ok ? await inboxRes.json() : { notifications: [], last_poll: "" };
+      const inbox = inboxRes.ok ? await inboxRes.json() : { last_poll: "" };
       state.inboxPoll = inbox.last_poll || "";
-      const items = [];
-      const seen = new Set();
-      for (const item of (work.items || [])) {
-        items.push(item);
-        const key = canonicalUrl(item.url);
-        if (key) seen.add(key);
-      }
-      for (const n of (inbox.notifications || [])) {
-        const url = n.html_url || "";
-        const key = canonicalUrl(url);
-        if (key && seen.has(key)) continue;
-        items.push({
-          id: n.id,
-          source: "inbox",
-          status: n.breeze_status || "inbox",
-          kind: n.type || "",
-          reason: n.reason || "",
-          repo: n.repo || "",
-          title: n.title || "",
-          url,
-          summary: "",
-          updated_at: n.updated_at || "",
-        });
-      }
-      items.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-      state.items = items;
+      state.items = work.items || [];
       render();
     } catch (error) {
       console.warn("board refresh failed", error);

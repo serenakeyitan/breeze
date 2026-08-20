@@ -848,18 +848,23 @@ impl Service {
                 continue;
             }
 
+            let reschedule = self.should_schedule(&candidate)?;
             metadata.insert("status".to_string(), "orphaned".to_string());
             metadata.insert("finished_at".to_string(), now.to_string());
             metadata.insert(
                 "summary".to_string(),
-                crate::util::encode_multiline(
-                    "breeze-runner recovered this unfinished running task and re-queued it",
-                ),
+                crate::util::encode_multiline(if reschedule {
+                    "breeze-runner recovered this unfinished running task and re-queued it"
+                } else {
+                    "breeze-runner recovered this unfinished running task; already handled, not re-queued"
+                }),
             );
             self.store
                 .write_task_metadata(&task_id, &metadata.clone().into_iter().collect::<Vec<_>>())?;
 
-            recovered.push(candidate);
+            if reschedule {
+                recovered.push(candidate);
+            }
         }
 
         recovered.sort_by(|left, right| {

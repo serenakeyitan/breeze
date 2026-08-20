@@ -39,6 +39,22 @@ impl TaskCandidate {
         }
     }
 
+    /// One checkout per thread. Do not mint a new worktree for every poll or
+    /// `updated_at` change — that recreates the same PR as a new fork.
+    pub fn workspace_slug(&self) -> String {
+        if let Some(number) = self.pr_number() {
+            return format!("{}-pr-{number}", self.kind.as_str());
+        }
+        if let Some(number) = self.issue_number() {
+            return format!("{}-issue-{number}", self.kind.as_str());
+        }
+        format!(
+            "{}-{}",
+            self.kind.as_str(),
+            stable_file_id(&self.thread_key)
+        )
+    }
+
     pub fn display_url(&self) -> &str {
         if !self.web_url.is_empty() {
             &self.web_url
@@ -419,6 +435,27 @@ mod tests {
         );
 
         assert_eq!(candidate.pr_number(), Some(45));
+    }
+
+    #[test]
+    fn workspace_slug_is_stable_across_polls_for_the_same_pr() {
+        let first = build_author_pr_candidate(
+            "serenakeyitan/tokentorrent".to_string(),
+            77,
+            "feat".to_string(),
+            "https://github.com/serenakeyitan/tokentorrent/pull/77".to_string(),
+            "2026-08-20T01:00:00Z".to_string(),
+        );
+        let later = build_author_pr_candidate(
+            "serenakeyitan/tokentorrent".to_string(),
+            77,
+            "feat".to_string(),
+            "https://github.com/serenakeyitan/tokentorrent/pull/77".to_string(),
+            "2026-08-20T02:00:00Z".to_string(),
+        );
+        assert_eq!(first.workspace_slug(), "review_request-pr-77");
+        assert_eq!(first.workspace_slug(), later.workspace_slug());
+        assert_ne!(first.stable_id(), later.stable_id());
     }
 
     #[test]
